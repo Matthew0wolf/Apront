@@ -1,0 +1,22 @@
+# Configuração do Replit para Sistema Apront
+
+# Linguagem principal (Python para o backend)
+language = "python3"
+
+# Comando para iniciar o projeto
+run = "python main.py"
+
+# Configuração do Nix (gerenciador de pacotes)
+[nix]
+channel = "stable-22_11"
+
+# Configuração de portas
+[deploy]
+run = ["sh", "-c", "python main.py"]
+
+# Variáveis de ambiente (serão configuradas no painel do Replit)
+[env]
+PYTHONPATH = "${PYTHONPATH}:."
+PORT = "5001"
+FRONTEND_PORT = "3000"
+

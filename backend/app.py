@@ -130,4 +130,7 @@ if __name__ == '__main__':
         db.create_all()
     # Usa socketio.run() em vez de app.run() para ativar o servidor WebSocket
     # host='0.0.0.0' permite acesso de outros IPs da rede
-    socketio.run(app, debug=True, host='0.0.0.0', port=5001)
+    # Porta configurável via variável de ambiente (útil para Replit e outros serviços)
+    port = int(os.getenv('PORT', 5001))
+    debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
+    socketio.run(app, debug=debug_mode, host='0.0.0.0', port=port)

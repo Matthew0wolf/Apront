@@ -1,14 +1,12 @@
 @echo off
-cls
 echo ========================================
-echo    INICIANDO BACKEND APRONT
+echo   INICIANDO FRONTEND - SISTEMA APRONT
 echo ========================================
 echo.
-echo Aguarde...
+echo Iniciando servidor Vite...
 echo.
-
-cd "%~dp0backend"
-python app.py
-
+npm run dev
+echo.
+echo Servidor encerrado.
 pause
 
