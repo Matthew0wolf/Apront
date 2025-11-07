@@ -1,0 +1,22 @@
+# Configurações de Email
+# Crie um arquivo .env na pasta backend com estas configurações:
+
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=seu_email@gmail.com
+SMTP_PASSWORD=sua_senha_de_app
+FROM_EMAIL=seu_email@gmail.com
+
+# Para Gmail, você precisa:
+# 1. Ativar a verificação em 2 etapas
+# 2. Gerar uma "Senha de App" específica
+# 3. Usar essa senha de app no campo SMTP_PASSWORD
+
+# Para outros provedores, descomente e configure:
+# Outlook/Hotmail:
+# SMTP_SERVER=smtp-mail.outlook.com
+# SMTP_PORT=587
+
+# Yahoo:
+# SMTP_SERVER=smtp.mail.yahoo.com
+# SMTP_PORT=587

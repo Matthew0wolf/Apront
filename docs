@@ -1,0 +1,498 @@
+# 📋 Documentação Completa - Sistema de Rundowns
+
+## 📖 Visão Geral
+
+**Run It Down** é uma plataforma SaaS para controle de transmissões ao vivo com rundowns automatizados. O sistema permite que equipes de transmissão colaborem em tempo real, gerenciando cronogramas de transmissão com sincronização automática entre operadores e apresentadores.
+
+### 🎯 Propósito
+- **Operadores**: Controlam o timing e sequência dos itens
+- **Apresentadores**: Visualizam o conteúdo atual e próximos itens
+- **Administradores**: Gerenciam equipes, projetos e configurações
+
+---
+
+## 🏗️ Arquitetura Técnica
+
+### Backend (Flask/Python)
+```
+backend/
+├── app.py                 # Aplicação principal Flask
+├── models.py              # Modelos de dados (SQLAlchemy)
+├── websocket_server.py    # Servidor WebSocket para tempo real
+├── auth_utils.py          # Utilitários de autenticação
+├── routes/                # Blueprints das rotas API
+│   ├── auth.py           # Autenticação e registro
+│   ├── rundown.py        # CRUD de rundowns
+│   ├── team.py           # Gerenciamento de equipe
+│   ├── admin.py          # Funcionalidades administrativas
+│   ├── plans.py          # Planos e assinaturas SaaS
+│   ├── templates.py      # Marketplace de templates
+│   ├── sync.py           # Sincronização em tempo real
+│   └── analytics.py      # Analytics e relatórios
+└── uploads/              # Arquivos de upload
+```
+
+### Frontend (React/Vite)
+```
+src/
+├── App.jsx               # Componente principal e roteamento
+├── components/           # Componentes React
+│   ├── Dashboard.jsx    # Painel principal
+│   ├── ProjectsView.jsx # Gerenciamento de projetos
+│   ├── OperatorView.jsx # Interface do operador
+│   ├── PresenterView.jsx # Interface do apresentador
+│   ├── TeamView.jsx     # Gerenciamento de equipe
+│   ├── PlansView.jsx    # Visualização de planos
+│   └── ui/              # Componentes de UI (Radix UI)
+├── contexts/            # Contextos React
+│   ├── AuthContext.jsx  # Autenticação
+│   ├── RundownContext.jsx # Estado dos rundowns
+│   ├── SyncContext.jsx  # Sincronização WebSocket
+│   └── TimerContext.jsx # Controle de tempo
+├── pages/               # Páginas de autenticação
+└── lib/                 # Utilitários e WebSocket
+```
+
+---
+
+## 🔐 Sistema de Autenticação e Autorização
+
+### Modelos de Usuário
+```python
+class UserRole(enum.Enum):
+    admin = 'admin'           # Acesso total
+    operator = 'operator'     # Controla transmissões
+    presenter = 'presenter'   # Visualiza conteúdo
+
+class User(db.Model):
+    # Campos básicos
+    name, email, password_hash, role, company_id
+    
+    # Permissões modulares
+    can_operate = db.Boolean    # Pode acessar operador
+    can_present = db.Boolean    # Pode acessar apresentador
+```
+
+### Fluxo de Autenticação
+1. **Registro**: Email + verificação por token de 6 dígitos
+2. **Login**: JWT com 12h de expiração
+3. **Autorização**: Baseada em roles e permissões modulares
+4. **Middleware**: `@jwt_required()` com verificações de permissão
+
+### Empresas e Multi-tenancy
+```python
+class Company(db.Model):
+    name, domain, plan_id, status, trial_ends_at
+    
+class Plan(db.Model):
+    name, price, max_members, max_rundowns, max_storage_gb, features
+```
+
+---
+
+## 📊 Modelo de Dados
+
+### Estrutura Principal
+```
+Company (1) ←→ (N) User
+Company (1) ←→ (1) Plan
+Company (1) ←→ (N) Subscription
+Company (1) ←→ (N) Rundown
+
+Rundown (1) ←→ (N) Folder
+Folder (1) ←→ (N) Item
+Rundown (N) ←→ (N) User (RundownMember)
+```
+
+### Entidades SaaS
+- **Plan**: Define limites e recursos por empresa
+- **Subscription**: Gerencia cobrança e status
+- **UsageLog**: Rastreia uso para controle de limites
+- **CompanyLimits**: Cache de uso atual
+
+### Marketplace
+- **Template**: Templates de rundowns reutilizáveis
+- **TemplateLike**: Sistema de avaliação
+
+---
+
+## 🔄 Sincronização em Tempo Real
+
+### WebSocket Implementation
+```python
+# Backend (websocket_server.py)
+@socketio.on('join_rundown')
+def handle_join_rundown(data):
+    join_room(f'rundown_{rundown_id}')
+
+@socketio.on('rundown_updated')
+def handle_rundown_updated(data):
+    emit('rundown_updated', data, room=f'rundown_{rundown_id}')
+```
+
+### Eventos Sincronizados
+- ✅ **Timer**: Play/pause, tempo atual
+- ✅ **Navegação**: Item atual, próximos itens
+- ✅ **Reordenação**: Drag & drop de itens/pastas
+- ✅ **Estrutura**: Adição/remoção de conteúdo
+- ✅ **Status**: Rundown ativo/inativo
+
+### Frontend Sync
+```javascript
+// SyncContext.jsx
+const syncRundownUpdate = (rundownId, changes) => {
+  // Evento local imediato
+  window.dispatchEvent(new CustomEvent('rundownSync', { detail: { rundownId, changes } }));
+  
+  // WebSocket para outros clientes
+  websocketManager.socket.emit('rundown_updated', { rundown_id: rundownId, changes });
+};
+```
+
+---
+
+## 🎮 Funcionalidades Atuais
+
+### 1. Dashboard
+- ✅ Visão geral de rundowns ativos
+- ✅ Estatísticas de equipe
+- ✅ Analytics básicos
+- ✅ Status de conexão WebSocket
+
+### 2. Gerenciamento de Projetos
+- ✅ CRUD completo de rundowns
+- ✅ Categorização por tipo
+- ✅ Busca e filtros
+- ✅ Templates de importação
+- ✅ Gerenciamento de equipe por projeto
+
+### 3. Interface do Operador
+- ✅ Timer com controle play/pause
+- ✅ Navegação sequencial de itens
+- ✅ Edição em tempo real
+- ✅ Drag & drop para reordenação
+- ✅ Alertas visuais de tempo
+- ✅ Sincronização com apresentador
+
+### 4. Interface do Apresentador
+- ✅ Visualização do item atual
+- ✅ Preview dos próximos itens
+- ✅ Contador de tempo
+- ✅ Transições automáticas
+- ✅ Modo fullscreen
+
+### 5. Gerenciamento de Equipe
+- ✅ Convites por email
+- ✅ Controle de permissões granular
+- ✅ Roles e permissões modulares
+- ✅ Gerenciamento de avatares
+
+### 6. Sistema SaaS
+- ✅ Planos com limites
+- ✅ Controle de uso
+- ✅ Trial period
+- ✅ Multi-tenancy por empresa
+
+---
+
+## 📈 Estado Atual vs. Potencial SaaS
+
+### ✅ Pontos Fortes Atuais
+1. **Arquitetura Sólida**: Separação clara frontend/backend
+2. **Tempo Real**: WebSocket bem implementado
+3. **Multi-tenancy**: Base para SaaS já existe
+4. **Autenticação**: JWT + roles funcionais
+5. **UI/UX**: Interface moderna com Radix UI
+6. **Permissões**: Sistema granular implementado
+
+### ⚠️ Limitações Atuais
+1. **Banco de Dados**: SQLite (não escalável)
+2. **Pagamentos**: Não implementado
+3. **Deploy**: Configuração local apenas
+4. **Monitoramento**: Sem logs/analytics avançados
+5. **Backup**: Sem estratégia de backup
+6. **Segurança**: Chaves hardcoded
+
+---
+
+## 🚀 Roadmap para SaaS de Sucesso
+
+### 🎯 Fase 1: Infraestrutura (2-4 semanas)
+
+#### 1.1 Banco de Dados
+- [ ] **Migração PostgreSQL**
+  ```python
+  # Substituir SQLite
+  DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://...')
+  app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+  ```
+
+#### 1.2 Variáveis de Ambiente
+- [ ] **Configuração Segura**
+  ```python
+  # .env
+  SECRET_KEY=your_super_secret_key_here
+  DATABASE_URL=postgresql://...
+  JWT_SECRET=your_jwt_secret
+  EMAIL_PASSWORD=your_email_password
+  ```
+
+#### 1.3 Docker & Deploy
+- [ ] **Containerização**
+  ```dockerfile
+  # Dockerfile
+  FROM python:3.11-slim
+  COPY requirements.txt .
+  RUN pip install -r requirements.txt
+  ```
+
+#### 1.4 CI/CD Pipeline
+- [ ] **GitHub Actions**
+  - Testes automatizados
+  - Deploy automático
+  - Rollback em caso de erro
+
+### 🎯 Fase 2: Monetização (3-4 semanas)
+
+#### 2.1 Gateway de Pagamento
+- [ ] **Stripe Integration**
+  ```python
+  # routes/payments.py
+  @plans_bp.route('/create-subscription', methods=['POST'])
+  def create_subscription():
+      # Criar subscription no Stripe
+      # Ativar plano na empresa
+  ```
+
+#### 2.2 Planos Estruturados
+```python
+PLANS = {
+    'starter': {
+        'price': 29.90,
+        'max_members': 5,
+        'max_rundowns': 10,
+        'features': ['basic_templates', 'email_support']
+    },
+    'professional': {
+        'price': 99.90,
+        'max_members': 20,
+        'max_rundowns': 50,
+        'features': ['all_templates', 'priority_support', 'analytics']
+    },
+    'enterprise': {
+        'price': 299.90,
+        'max_members': 100,
+        'max_rundowns': -1,  # Ilimitado
+        'features': ['custom_templates', 'dedicated_support', 'sso']
+    }
+}
+```
+
+#### 2.3 Sistema de Cobrança
+- [ ] **Billing Engine**
+  - Cobrança recorrente
+  - Upgrades/downgrades
+  - Cancelamentos
+  - Notificações de vencimento
+
+#### 2.4 Trial Management
+- [ ] **Trial Inteligente**
+  - 14 dias grátis
+  - Notificações de expiração
+  - Conversão automática
+
+### 🎯 Fase 3: Funcionalidades Avançadas (4-6 semanas)
+
+#### 3.1 Analytics Avançados
+- [ ] **Dashboard Executivo**
+  ```javascript
+  // Analytics detalhados
+  - Tempo médio de transmissão
+  - Itens mais utilizados
+  - Performance da equipe
+  - ROI por projeto
+  ```
+
+#### 3.2 Integrações
+- [ ] **APIs Externas**
+  - OBS Studio integration
+  - YouTube/Twitch API
+  - Calendar sync (Google/Outlook)
+  - Slack notifications
+
+#### 3.3 Templates Marketplace
+- [ ] **Marketplace Completo**
+  - Templates pagos
+  - Sistema de reviews
+  - Categorização avançada
+  - Templates personalizados
+
+#### 3.4 Mobile App
+- [ ] **React Native App**
+  - Visualização de rundowns
+  - Notificações push
+  - Controle básico do timer
+
+### 🎯 Fase 4: Escalabilidade (3-4 semanas)
+
+#### 4.1 Performance
+- [ ] **Otimizações**
+  - Redis para cache
+  - CDN para assets
+  - Database indexing
+  - Query optimization
+
+#### 4.2 Monitoramento
+- [ ] **Observabilidade**
+  ```python
+  # Logging estruturado
+  import structlog
+  logger = structlog.get_logger()
+  ```
+
+#### 4.3 Backup & Recovery
+- [ ] **Estratégia de Backup**
+  - Backup automático diário
+  - Point-in-time recovery
+  - Cross-region replication
+
+#### 4.4 Security
+- [ ] **Segurança Avançada**
+  - Rate limiting
+  - Input validation
+  - SQL injection protection
+  - XSS prevention
+
+---
+
+## 💰 Modelo de Negócio Recomendado
+
+### 🎯 Estratégia de Preços
+
+#### Plano Starter - R$ 29,90/mês
+- 5 membros da equipe
+- 10 rundowns ativos
+- Templates básicos
+- Suporte por email
+
+#### Plano Professional - R$ 99,90/mês
+- 20 membros da equipe
+- 50 rundowns ativos
+- Todos os templates
+- Suporte prioritário
+- Analytics avançados
+
+#### Plano Enterprise - R$ 299,90/mês
+- 100 membros da equipe
+- Rundowns ilimitados
+- Templates personalizados
+- Suporte dedicado
+- SSO integration
+
+### 📊 Projeções de Receita
+```
+Ano 1: 100 empresas × R$ 99,90 × 12 = R$ 119.880
+Ano 2: 500 empresas × R$ 99,90 × 12 = R$ 599.400
+Ano 3: 1.500 empresas × R$ 99,90 × 12 = R$ 1.798.200
+```
+
+---
+
+## 🛠️ Implementação Técnica Prioritária
+
+### 1. Migração de Banco (Semana 1)
+```python
+# Alembic migration
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade():
+    # Migrar dados do SQLite para PostgreSQL
+    # Criar índices otimizados
+    # Configurar connection pooling
+```
+
+### 2. Sistema de Pagamentos (Semana 2-3)
+```python
+# Stripe webhook handler
+@app.route('/webhooks/stripe', methods=['POST'])
+def stripe_webhook():
+    event = stripe.Webhook.construct_event(
+        request.data, request.headers['stripe-signature'], webhook_secret
+    )
+    
+    if event['type'] == 'invoice.payment_succeeded':
+        activate_subscription(event['data']['object'])
+```
+
+### 3. Deploy Production (Semana 4)
+```yaml
+# docker-compose.prod.yml
+version: '3.8'
+services:
+  app:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://...
+      - REDIS_URL=redis://...
+    depends_on:
+      - postgres
+      - redis
+```
+
+---
+
+## 📋 Checklist de Implementação
+
+### ✅ Infraestrutura
+- [ ] PostgreSQL setup
+- [ ] Redis para cache
+- [ ] Docker containerization
+- [ ] CI/CD pipeline
+- [ ] Environment variables
+- [ ] SSL certificates
+
+### ✅ Monetização
+- [ ] Stripe integration
+- [ ] Subscription management
+- [ ] Billing dashboard
+- [ ] Trial system
+- [ ] Payment notifications
+
+### ✅ Funcionalidades
+- [ ] Advanced analytics
+- [ ] Template marketplace
+- [ ] API integrations
+- [ ] Mobile app
+- [ ] SSO support
+
+### ✅ Operacional
+- [ ] Monitoring & logging
+- [ ] Backup strategy
+- [ ] Security hardening
+- [ ] Performance optimization
+- [ ] Support system
+
+---
+
+## 🎯 Conclusão
+
+O projeto **Run It Down** possui uma base sólida para se tornar um SaaS de sucesso. A arquitetura atual já implementa os fundamentos necessários:
+
+- ✅ Multi-tenancy
+- ✅ Autenticação robusta
+- ✅ Sincronização em tempo real
+- ✅ Interface moderna
+- ✅ Sistema de permissões
+
+**Próximos passos críticos:**
+1. **Infraestrutura**: PostgreSQL + Redis + Deploy
+2. **Monetização**: Stripe + Planos estruturados
+3. **Escalabilidade**: Performance + Monitoramento
+
+Com as implementações sugeridas, o sistema pode atingir **R$ 1.8M+ em receita anual** no terceiro ano, servindo mais de 1.500 empresas no mercado de transmissões ao vivo.
+
+---
+
+*Documentação gerada em: $(date)*
+*Versão: 1.0*

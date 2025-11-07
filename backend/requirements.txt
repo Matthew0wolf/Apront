@@ -1,0 +1,8 @@
+flask
+flask_sqlalchemy
+flask-socketio
+flask-compress
+redis
+python-dotenv
+psycopg2-binary
+openpyxl

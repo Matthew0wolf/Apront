@@ -1,0 +1,25 @@
+import time
+import json
+
+print("=== TESTE DE SINCRONIZAÇÃO ===")
+print("1. Abra duas abas do navegador")
+print("2. Na aba 1: Acesse como operador")
+print("3. Na aba 2: Acesse como apresentador")
+print("4. No operador, reordene alguns itens")
+print("5. Verifique o console do navegador para logs")
+print("\n=== LOGS ESPERADOS ===")
+print("No Operador:")
+print("- 🔄 Sincronizando reordenação de item: {...}")
+print("- 🔄 Disparando evento itemReordered")
+print("\nNo Apresentador:")
+print("- 🔄 Mudança detectada! {...}")
+print("- 📦 Mudanças encontradas: {...}")
+print("- 🔄 Disparando evento itemReordered")
+print("- 📥 Evento itemReordered recebido: {...}")
+print("- ✅ Atualizando ordem dos itens: {...}")
+print("\n=== VERIFICAÇÃO MANUAL ===")
+print("1. Abra o Console do navegador (F12)")
+print("2. Filtre por '🔄' ou '📥' ou '✅'")
+print("3. Reordene itens no operador")
+print("4. Veja se os logs aparecem em ambas as abas")
+

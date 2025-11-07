@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light theme: Conforme Figma */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 96%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 354 84% 49%; /* #e71d36 - vermelho primário do Figma */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 97%; /* #f7f7f7 - cinza claro do Figma */
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89%;
+    --input: 0 0% 89%;
+    --ring: 354 84% 49%; /* #e71d36 - vermelho primário do Figma */
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Dark theme: Conforme Figma */
+    --background: 0 0% 3%; /* #080808 - fundo escuro do Figma */
+    --foreground: 0 0% 100%;
+    --card: 0 0% 9%; /* #171717 - cards escuros do Figma */
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 354 84% 49%; /* #e71d36 - vermelho primário do Figma */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 65%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 354 84% 49%; /* #e71d36 - vermelho primário do Figma */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Darker Grotesque', sans-serif;
+  }
+  html {
+    font-family: 'Darker Grotesque', sans-serif;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--secondary));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}
+
+/* Container para prevenir movimento horizontal */
+.reorder-container {
+  overflow-x: hidden !important;
+  width: 100% !important;
+}

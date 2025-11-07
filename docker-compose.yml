@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # Banco de dados PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: apront-postgres
+    environment:
+      POSTGRES_USER: apront_user
+      POSTGRES_PASSWORD: apront_password_2024
+      POSTGRES_DB: apront_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apront_user -d apront_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - apront-network
+    restart: unless-stopped
+
+  # Redis para cache e sessões
+  redis:
+    image: redis:7-alpine
+    container_name: apront-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - apront-network
+    restart: unless-stopped
+
+  # Backend Flask
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: apront-backend
+    environment:
+      - DATABASE_URL=postgresql://apront_user:apront_password_2024@postgres:5432/apront_db
+      - REDIS_URL=redis://redis:6379/0
+      - FLASK_ENV=development
+      - SECRET_KEY=your_secret_key_here_change_in_production
+      - JWT_SECRET_KEY=your_jwt_secret_here_change_in_production
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - apront-network
+    restart: unless-stopped
+    command: python app.py
+
+  # PgAdmin (opcional - interface web para PostgreSQL)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: apront-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@apront.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - apront-network
+    restart: unless-stopped
+    profiles:
+      - admin  # Só inicia se usar: docker-compose --profile admin up
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  apront-network:
+    driver: bridge
+
