@@ -252,13 +252,29 @@ def delete_rundown(rundown_id):
     rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
     if not rundown:
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
-    db.session.delete(rundown)
-    db.session.commit()
+    
     try:
-        broadcast_rundown_list_changed()
-    except Exception:
-        pass
-    return jsonify({'message': 'Rundown deletado com sucesso'})
+        # Deletar membros do rundown primeiro (cascade deve fazer isso, mas garantimos)
+        from models import RundownMember
+        RundownMember.query.filter_by(rundown_id=rundown_id).delete()
+        
+        # Deletar o rundown (cascade deleta folders e items automaticamente)
+        db.session.delete(rundown)
+        db.session.commit()
+        
+        # Notificar via WebSocket
+        try:
+            broadcast_rundown_list_changed()
+        except Exception:
+            pass  # Não falha se WebSocket não funcionar
+        
+        return jsonify({'message': 'Rundown deletado com sucesso'})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Erro ao deletar rundown: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Erro ao deletar rundown: {str(e)}'}), 500
 
 
 # Atualizar membros do rundown

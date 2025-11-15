@@ -158,6 +158,7 @@ class Rundown(db.Model):
     team_members = db.Column(db.Integer)
     company_id = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)  # CRÍTICO: Isolamento por empresa
     folders = db.relationship('Folder', backref='rundown', cascade='all, delete-orphan')
+    members = db.relationship('RundownMember', backref='rundown', cascade='all, delete-orphan')
 
 
 class RundownMember(db.Model):
