@@ -4,24 +4,29 @@ from email.message import EmailMessage
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Detecta se está em produção (Railway) ANTES de carregar .env
+# Carrega .env primeiro (sem sobrescrever variáveis já definidas) para detectar FLASK_ENV
+backend_dir = Path(__file__).parent.absolute()
+env_path = backend_dir / '.env'
+load_dotenv(dotenv_path=env_path, override=False)  # override=False: não sobrescreve variáveis já definidas
+
+# Detecta se está em produção (Railway ou VPS/Docker)
 IS_PRODUCTION = bool(
     os.getenv('RAILWAY_ENVIRONMENT') or 
     os.getenv('RAILWAY_ENVIRONMENT_NAME') or
     os.getenv('RAILWAY_PROJECT_ID') or 
     os.getenv('RAILWAY_SERVICE_NAME') or
-    os.getenv('RAILWAY_SERVICE_ID')
+    os.getenv('RAILWAY_SERVICE_ID') or
+    os.getenv('FLASK_ENV') == 'production'  # VPS/Docker
 )
 
-# Carrega o arquivo .env APENAS em desenvolvimento local
-# Em produção (Railway), usa apenas variáveis de ambiente
-if not IS_PRODUCTION:
-    backend_dir = Path(__file__).parent.absolute()
-    env_path = backend_dir / '.env'
-    load_dotenv(dotenv_path=env_path)
-    print("[EMAIL] Carregando configurações do arquivo .env (desenvolvimento local)")
+# Log sobre carregamento
+if IS_PRODUCTION:
+    if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID'):
+        print("[EMAIL] Modo produção Railway: usando variáveis de ambiente do Railway")
+    else:
+        print("[EMAIL] Modo produção VPS: usando variáveis do .env e docker-compose")
 else:
-    print("[EMAIL] Modo produção: usando apenas variáveis de ambiente do Railway")
+    print("[EMAIL] Modo desenvolvimento: usando variáveis do .env")
 
 SMTP_SERVER = os.getenv('SMTP_SERVER')
 SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
