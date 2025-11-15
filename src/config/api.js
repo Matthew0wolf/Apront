@@ -45,9 +45,19 @@ const getApiUrl = () => {
   // Se estiver rodando em produção/VPS (não localhost), usa o mesmo domínio
   // O Nginx faz proxy para o backend na porta 5001
   // Isso permite que WebSocket funcione através do Nginx
+  // Detecta se é IP (números) ou domínio
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const apiUrl = `${protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
-  console.log('🌐 Detectado acesso em produção/VPS:', window.location.hostname, '-> Backend via Nginx:', apiUrl);
+  const hostname = window.location.hostname;
+  
+  // Se for um IP (VPS) ou domínio de produção, usa o mesmo host
+  const apiUrl = `${protocol}//${hostname}${window.location.port ? ':' + window.location.port : ''}`;
+  console.log('🌐 Detectado acesso em produção/VPS:', hostname, '-> Backend via Nginx:', apiUrl);
+  console.log('🔧 window.location:', {
+    hostname: hostname,
+    protocol: window.location.protocol,
+    port: window.location.port,
+    href: window.location.href
+  });
   return apiUrl;
 };
 
