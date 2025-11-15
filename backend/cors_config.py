@@ -36,10 +36,15 @@ def enable_cors(app):
     }
     
     # Aplica CORS globalmente para TODAS as rotas
+    # Usando automatic_options=True para garantir que OPTIONS seja tratado automaticamente
     CORS(
         app,
         resources={r"/*": cors_config},
+        automatic_options=True,  # Trata OPTIONS automaticamente
+        supports_credentials=False,  # Não usar credentials com wildcard
         **cors_config  # Aplica também globalmente
     )
     
     print(f"✅ CORS configurado com sucesso!")
+    print(f"   Flask-CORS habilitado com origins: {allowed_origins}")
+    print(f"   Headers manuais também serão adicionados no after_request")

@@ -283,12 +283,23 @@ def add_security_headers(response):
     # CORS headers (SEMPRE adicionar, mesmo que Flask-CORS já tenha adicionado)
     # Isso garante que os headers estejam presentes em TODAS as respostas
     # IMPORTANTE: Não usar credentials com wildcard (*)
+    
+    # Força adicionar headers CORS (sobrescreve qualquer valor anterior)
+    # SEMPRE usa '*' para garantir compatibilidade máxima
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
     response.headers['Access-Control-Max-Age'] = '600'
     # Não usar Access-Control-Allow-Credentials com wildcard (*)
     # response.headers['Access-Control-Allow-Credentials'] = 'true'  # Incompatível com '*'
+    
+    # Debug: log dos headers CORS (apenas em desenvolvimento ou se DEBUG estiver ativo)
+    if os.getenv('FLASK_DEBUG', 'False').lower() == 'true' or not IS_PRODUCTION:
+        origin_header = request.headers.get('Origin', 'N/A')
+        print(f"🔧 CORS Headers adicionados:")
+        print(f"   Origin recebido: {origin_header}")
+        print(f"   Access-Control-Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
+        print(f"   Access-Control-Allow-Methods: {response.headers.get('Access-Control-Allow-Methods')}")
     
     # Headers de segurança HTTP (mais permissivos para não bloquear CORS)
     response.headers['X-Content-Type-Options'] = 'nosniff'
