@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 import * as XLSX from 'xlsx';
 
 // Componente de Estrelas Interativo
@@ -89,7 +90,7 @@ const TemplatesView = () => {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch('http://localhost:5001/api/templates', {
+        const res = await fetch(`${API_BASE_URL}/api/templates`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -132,7 +133,7 @@ const TemplatesView = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:5001/api/templates/${templateId}/import`, {
+      const response = await fetch(`${API_BASE_URL}/api/templates/${templateId}/import`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -179,7 +180,7 @@ const TemplatesView = () => {
     }
 
     try {
-      const response = await fetch(`http://localhost:5001/api/templates/${templateId}/like`, {
+      const response = await fetch(`${API_BASE_URL}/api/templates/${templateId}/like`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -228,7 +229,7 @@ const TemplatesView = () => {
 
   const handleRate = async (templateId, stars) => {
     try {
-      const response = await fetch(`http://localhost:5001/api/templates/${templateId}/rate`, {
+      const response = await fetch(`${API_BASE_URL}/api/templates/${templateId}/rate`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -413,8 +414,8 @@ const TemplatesView = () => {
       }
 
       // Recarrega a lista de templates
-      const res = await fetch('http://localhost:5001/api/templates', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      const res = await fetch(`${API_BASE_URL}/api/templates`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (res.ok) {
         const data = await res.json();
