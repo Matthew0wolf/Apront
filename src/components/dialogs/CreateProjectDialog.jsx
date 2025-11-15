@@ -60,12 +60,16 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
         .then(data => {
           // Salva membros completos (com roles) para identificar owner
           setRundownMembers(data.members || []);
-          // Marca TODOS os membros atuais como selecionados (incluindo owner, mas owner será filtrado na UI)
-          // IMPORTANTE: Todos os membros que já estão no rundown devem aparecer selecionados
-          const currentMemberIds = (data.members || []).map(m => m.id);
+          // Marca apenas os membros NÃO-owner como selecionados (owner será mostrado separadamente e não precisa estar no selectedMembers)
+          // IMPORTANTE: Garante que IDs sejam comparáveis (convertendo para número se necessário)
+          const owner = (data.members || []).find(m => m.rundown_role === 'owner');
+          const currentMemberIds = (data.members || [])
+            .filter(m => m.rundown_role !== 'owner') // Remove owner da lista de selecionados
+            .map(m => typeof m.id === 'string' ? parseInt(m.id) : m.id); // Garante tipo consistente
           setSelectedMembers(currentMemberIds);
           console.log('[DIALOG] Membros carregados do rundown:', data.members);
-          console.log('[DIALOG] IDs selecionados:', currentMemberIds);
+          console.log('[DIALOG] Owner:', owner);
+          console.log('[DIALOG] IDs selecionados (sem owner):', currentMemberIds);
         })
         .catch(() => {
           setRundownMembers([]);
@@ -83,15 +87,20 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
     }
     
     // Garante que members seja sempre um array
-    // IMPORTANTE: Remove o owner da lista antes de enviar (o backend sempre mantém o owner)
+    // IMPORTANTE: Owner não deve estar em selectedMembers (já foi filtrado ao carregar), mas garantimos aqui também
     let members = Array.isArray(selectedMembers) ? selectedMembers : [];
     
     if (managingTeam && rundownMembers.length > 0) {
       // Remove o owner da lista de membros a enviar (backend sempre mantém)
+      // Garante comparação correta mesmo se IDs forem de tipos diferentes
       const owner = rundownMembers.find(m => m.rundown_role === 'owner');
       if (owner) {
-        members = members.filter(id => id !== owner.id);
-        console.log('[DIALOG] Owner removido da lista de membros a enviar:', owner.id);
+        const ownerId = typeof owner.id === 'string' ? parseInt(owner.id) : owner.id;
+        members = members.filter(id => {
+          const memberId = typeof id === 'string' ? parseInt(id) : id;
+          return memberId !== ownerId;
+        });
+        console.log('[DIALOG] Owner removido da lista de membros a enviar:', ownerId);
       }
     }
     
@@ -160,6 +169,14 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                   {managingTeam && rundownMembers.length > 0 && (() => {
                     const owner = rundownMembers.find(m => m.rundown_role === 'owner');
                     if (owner) {
+                      // Verifica se o owner também está na lista de membros da empresa (para evitar duplicação)
+                      const ownerInTeam = team.find(m => {
+                        const ownerId = typeof owner.id === 'string' ? parseInt(owner.id) : owner.id;
+                        const memberId = typeof m.id === 'string' ? parseInt(m.id) : m.id;
+                        return ownerId === memberId;
+                      });
+                      
+                      // Só mostra se realmente for o owner do rundown
                       return (
                         <div key={`owner-${owner.id}`} className="flex items-center gap-2 pb-2 mb-2 border-b">
                           <input
@@ -168,7 +185,10 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                             disabled={true}
                             className="opacity-50 cursor-not-allowed"
                           />
-                          <span className="font-medium">{owner.name} ({owner.role}) - <span className="text-blue-500">Criador</span></span>
+                          <span className="font-medium">
+                            {owner.name} ({owner.role}) - <span className="text-blue-500">Criador</span>
+                            {ownerInTeam && <span className="text-xs text-muted-foreground ml-2">(não pode ser removido)</span>}
+                          </span>
                         </div>
                       );
                     }
@@ -181,22 +201,52 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                       // Se estiver gerenciando equipe, exclui o owner da lista de checkboxes
                       if (managingTeam && rundownMembers.length > 0) {
                         const owner = rundownMembers.find(m => m.rundown_role === 'owner');
-                        return owner && member.id !== owner.id;
+                        if (owner) {
+                          // Garante comparação correta mesmo se IDs forem de tipos diferentes
+                          const ownerId = typeof owner.id === 'string' ? parseInt(owner.id) : owner.id;
+                          const memberId = typeof member.id === 'string' ? parseInt(member.id) : member.id;
+                          return ownerId !== memberId;
+                        }
                       }
                       return true;
                     })
-                    .map(member => (
-                      <label key={member.email} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedMembers.includes(member.id)}
-                          onChange={(e) => {
-                            setSelectedMembers(prev => e.target.checked ? [...prev, member.id] : prev.filter(id => id !== member.id));
-                          }}
-                        />
-                        <span>{member.name} ({member.role})</span>
-                      </label>
-                    ))}
+                    .map(member => {
+                      // Garante comparação correta de IDs para o checkbox
+                      const memberId = typeof member.id === 'string' ? parseInt(member.id) : member.id;
+                      const isSelected = selectedMembers.some(id => {
+                        const selectedId = typeof id === 'string' ? parseInt(id) : id;
+                        return selectedId === memberId;
+                      });
+                      
+                      return (
+                        <label key={member.email} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedMembers(prev => {
+                                  // Evita duplicatas
+                                  if (prev.some(id => {
+                                    const prevId = typeof id === 'string' ? parseInt(id) : id;
+                                    return prevId === memberId;
+                                  })) {
+                                    return prev;
+                                  }
+                                  return [...prev, memberId];
+                                });
+                              } else {
+                                setSelectedMembers(prev => prev.filter(id => {
+                                  const prevId = typeof id === 'string' ? parseInt(id) : id;
+                                  return prevId !== memberId;
+                                }));
+                              }
+                            }}
+                          />
+                          <span>{member.name} ({member.role})</span>
+                        </label>
+                      );
+                    })}
                 </div>
                 <div className="text-xs text-muted-foreground mt-2">
                   {managingTeam 
