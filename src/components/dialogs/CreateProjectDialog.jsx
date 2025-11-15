@@ -18,7 +18,8 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
   const [projectType, setProjectType] = useState('Esportes');
   const [team, setTeam] = useState([]);
   const [selectedMembers, setSelectedMembers] = useState([]);
-  const { token } = useContext(AuthContext);
+  const [rundownMembers, setRundownMembers] = useState([]); // Membros atuais do rundown (com roles)
+  const { token, user } = useContext(AuthContext);
   const { apiCall } = useApi();
 
   const isEditing = !!projectToEdit && !projectToEdit.manageTeam;
@@ -57,11 +58,20 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
       apiCall(`/api/rundowns/${projectToEdit.id}/members`)
         .then(res => res.ok ? res.json() : { members: [] })
         .then(data => {
-          // Marca os membros atuais como selecionados
-          const currentMemberIds = (data.members || []).map(m => m.id);
+          // Salva membros completos (com roles) para identificar owner
+          setRundownMembers(data.members || []);
+          // Marca os membros atuais como selecionados (exceto owner que sempre fica)
+          const currentMemberIds = (data.members || [])
+            .filter(m => m.rundown_role !== 'owner') // Owner não precisa estar selecionado
+            .map(m => m.id);
           setSelectedMembers(currentMemberIds);
         })
-        .catch(() => setSelectedMembers([]));
+        .catch(() => {
+          setRundownMembers([]);
+          setSelectedMembers([]);
+        });
+    } else {
+      setRundownMembers([]);
     }
   }, [isOpen, token, apiCall, managingTeam, projectToEdit]);
 
@@ -133,22 +143,52 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
               <div className="col-span-3 border border-input p-2 text-sm">
                 <div className="max-h-40 overflow-y-auto space-y-1">
                   {team.length === 0 && <div className="text-muted-foreground">Sem membros disponíveis</div>}
-                  {team.map(member => (
-                    <label key={member.email} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedMembers.includes(member.id)}
-                        onChange={(e) => {
-                          setSelectedMembers(prev => e.target.checked ? [...prev, member.id] : prev.filter(id => id !== member.id));
-                        }}
-                      />
-                      <span>{member.name} ({member.role})</span>
-                    </label>
-                  ))}
+                  
+                  {/* Mostra owner separadamente se estiver gerenciando equipe */}
+                  {managingTeam && rundownMembers.length > 0 && (() => {
+                    const owner = rundownMembers.find(m => m.rundown_role === 'owner');
+                    if (owner) {
+                      return (
+                        <div key={`owner-${owner.id}`} className="flex items-center gap-2 pb-2 mb-2 border-b">
+                          <input
+                            type="checkbox"
+                            checked={true}
+                            disabled={true}
+                            className="opacity-50 cursor-not-allowed"
+                          />
+                          <span className="font-medium">{owner.name} ({owner.role}) - <span className="text-blue-500">Criador</span></span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                  
+                  {/* Lista de membros (excluindo owner se estiver gerenciando) */}
+                  {team
+                    .filter(member => {
+                      // Se estiver gerenciando equipe, exclui o owner da lista de checkboxes
+                      if (managingTeam && rundownMembers.length > 0) {
+                        const owner = rundownMembers.find(m => m.rundown_role === 'owner');
+                        return owner && member.id !== owner.id;
+                      }
+                      return true;
+                    })
+                    .map(member => (
+                      <label key={member.email} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedMembers.includes(member.id)}
+                          onChange={(e) => {
+                            setSelectedMembers(prev => e.target.checked ? [...prev, member.id] : prev.filter(id => id !== member.id));
+                          }}
+                        />
+                        <span>{member.name} ({member.role})</span>
+                      </label>
+                    ))}
                 </div>
                 <div className="text-xs text-muted-foreground mt-2">
                   {managingTeam 
-                    ? 'Selecione os membros que terão acesso a este rundown. O criador sempre terá acesso.'
+                    ? 'O criador sempre terá acesso e não pode ser removido. Selecione ou desmarque outros membros.'
                     : 'Selecione os membros que terão acesso a este rundown. Se nenhum for selecionado, apenas você terá acesso.'}
                 </div>
               </div>
