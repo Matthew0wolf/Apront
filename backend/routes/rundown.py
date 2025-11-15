@@ -123,21 +123,18 @@ def create_rundown():
     db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
     
     # Se membros foram especificados, adiciona apenas eles
-    # Caso contrário, adiciona todos os usuários da empresa (comportamento padrão)
+    # IMPORTANTE: Se nenhum membro for especificado, apenas o criador terá acesso
     members = data.get('members', [])  # lista de user_ids
     
-    if members:
-        # Adiciona apenas os membros especificados
+    if members and len(members) > 0:
+        # Adiciona apenas os membros especificados (além do criador que já foi adicionado)
         for uid in members:
             if uid != creator_id:
-                db.session.add(RundownMember(rundown_id=rundown.id, user_id=uid))
+                db.session.add(RundownMember(rundown_id=rundown.id, user_id=uid, role='member'))
+                print(f"[CREATE] Membro {uid} adicionado ao rundown {rundown.id}")
     else:
-        # Comportamento padrão: adiciona todos os usuários da empresa
-        from models import User
-        company_users = User.query.filter_by(company_id=g.current_user.company_id).all()
-        for company_user in company_users:
-            if company_user.id != creator_id:
-                db.session.add(RundownMember(rundown_id=rundown.id, user_id=company_user.id, role='member'))
+        # Se nenhum membro foi especificado, apenas o criador terá acesso
+        print(f"[CREATE] Nenhum membro especificado - apenas criador {creator_id} terá acesso ao rundown {rundown.id}")
     
     db.session.commit()
     

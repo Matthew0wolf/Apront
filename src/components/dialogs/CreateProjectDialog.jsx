@@ -146,7 +146,11 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                     </label>
                   ))}
                 </div>
-                <div className="text-xs text-muted-foreground mt-2">Admin sempre terá acesso. Selecionados terão acesso a este rundown.</div>
+                <div className="text-xs text-muted-foreground mt-2">
+                  {managingTeam 
+                    ? 'Selecione os membros que terão acesso a este rundown. O criador sempre terá acesso.'
+                    : 'Selecione os membros que terão acesso a este rundown. Se nenhum for selecionado, apenas você terá acesso.'}
+                </div>
               </div>
             </div>
           </div>
