@@ -468,6 +468,8 @@ export const RundownProvider = ({ children }) => {
 
   const handleUpdateRundownMembers = async (rundownId, members) => {
     try {
+      console.log(`[UPDATE MEMBERS] Atualizando membros do rundown ${rundownId}:`, members);
+      
       const res = await apiCall(`/api/rundowns/${rundownId}/members`, {
         method: 'PATCH',
         body: JSON.stringify({ members })
@@ -475,17 +477,26 @@ export const RundownProvider = ({ children }) => {
       
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+        console.error(`[UPDATE MEMBERS] Erro ${res.status}:`, errorData);
         throw new Error(errorData.error || 'Erro ao atualizar membros');
       }
       
+      const result = await res.json().catch(() => ({}));
+      console.log(`[UPDATE MEMBERS] Sucesso:`, result);
+      
       toast({
         title: "✅ Equipe Atualizada!",
-        description: "Os membros do rundown foram atualizados com sucesso.",
+        description: `Os membros do rundown foram atualizados. ${result.members_count || members.length} membro(s) agora têm acesso.`,
       });
       
-      // Recarrega a lista para refletir as mudanças
-      fetchRundowns();
+      // Força recarregar a lista ignorando cache
+      // Isso garante que usuários removidos não vejam mais o rundown
+      fetchRundowns(true); // forceRefresh = true
+      setTimeout(() => {
+        fetchRundowns(true); // Força refresh novamente após delay
+      }, 500);
     } catch (err) {
+      console.error('[UPDATE MEMBERS] Erro ao atualizar membros:', err);
       toast({
         variant: 'destructive',
         title: 'Erro ao atualizar membros',

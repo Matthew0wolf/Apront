@@ -378,25 +378,45 @@ def update_rundown_members(rundown_id):
     # Remove membros atuais e recria lista (mantém criador/owner se existir)
     existing = RundownMember.query.filter_by(rundown_id=rundown_id).all()
     owner_ids = {rm.user_id for rm in existing if (rm.role or '').lower() == 'owner'}
+    
+    # Se não houver owner, o criador do rundown é o owner padrão
+    if not owner_ids:
+        # Tenta encontrar o criador (primeiro membro ou usuário atual)
+        owner_ids = {user.id}
+
+    print(f"[UPDATE MEMBERS] Owners a manter: {owner_ids}")
+    print(f"[UPDATE MEMBERS] Membros recebidos: {members}")
 
     # Apaga todos
     RundownMember.query.filter_by(rundown_id=rundown_id).delete()
     db.session.flush()
 
-    # Reinsere owner(s)
+    # Reinsere owner(s) - sempre mantém owners
     for oid in owner_ids:
         db.session.add(RundownMember(rundown_id=rundown_id, user_id=oid, role='owner'))
+        print(f"[UPDATE MEMBERS] Owner {oid} mantido")
 
     # Adiciona novos membros (evita duplicar owners)
+    members_added = 0
     for uid in members:
         if uid not in owner_ids:
             db.session.add(RundownMember(rundown_id=rundown_id, user_id=uid))
+            members_added += 1
+            print(f"[UPDATE MEMBERS] Membro {uid} adicionado")
+    
+    print(f"[UPDATE MEMBERS] Total de membros após atualização: {len(owner_ids) + members_added}")
 
     db.session.commit()
+    
+    # CRÍTICO: Invalidar cache de TODOS os usuários da empresa
+    # Isso garante que todos vejam a lista atualizada após mudança de membros
+    invalidate_company_cache(user.company_id)
+    print(f"[UPDATE MEMBERS] Cache invalidado para empresa {user.company_id}")
+    print(f"[UPDATE MEMBERS] Rundown {rundown_id} agora tem {len(members)} membros")
 
     try:
         broadcast_rundown_list_changed(company_id=user.company_id)
     except Exception:
         pass
 
-    return jsonify({'message': 'Equipe atualizada com sucesso'})
+    return jsonify({'message': 'Equipe atualizada com sucesso', 'members_count': len(members)})

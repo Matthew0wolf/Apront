@@ -319,12 +319,16 @@ const ProjectsView = () => {
           if (!open) setProjectToManage(null);
         }}
         projectToEdit={projectToManage}
-        onSave={(data) => {
+        onSave={async (data) => {
+          console.log('[PROJECTS VIEW] onSave chamado:', { projectToManage, data });
+          
           if (projectToManage?.manageTeam) {
             // Atualizar membros do rundown
-            handleUpdateRundownMembers(projectToManage.id, data.members || []);
+            console.log('[PROJECTS VIEW] Atualizando membros do rundown:', projectToManage.id, data.members);
+            await handleUpdateRundownMembers(projectToManage.id, data.members || []);
           } else {
             // Criar novo rundown
+            console.log('[PROJECTS VIEW] Criando novo rundown:', data);
             handleCreateRundown(data);
           }
           setCreateDialogOpen(false);

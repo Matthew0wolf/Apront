@@ -25,6 +25,12 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
   const managingTeam = !!projectToEdit && projectToEdit.manageTeam;
 
   useEffect(() => {
+    if (managingTeam) {
+      // No modo gerenciar equipe, não precisa setar nome/tipo
+      // Os membros serão carregados no outro useEffect
+      return;
+    }
+    
     if (isEditing) {
       setProjectName(projectToEdit.name);
       setProjectType(projectToEdit.type);
@@ -34,7 +40,7 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
       setProjectType('Esportes');
       setSelectedMembers([]);
     }
-  }, [projectToEdit, isOpen]);
+  }, [projectToEdit, isOpen, managingTeam, isEditing]);
 
   // Carrega membros da equipe para seleção
   useEffect(() => {
@@ -64,11 +70,15 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
     if (!managingTeam && !projectName.trim()) {
       return;
     }
+    
     // Garante que members seja sempre um array
+    const members = Array.isArray(selectedMembers) ? selectedMembers : [];
+    console.log('[DIALOG] Salvando:', { managingTeam, members, projectToEdit });
+    
     onSave({ 
       name: projectName, 
       type: projectType, 
-      members: Array.isArray(selectedMembers) ? selectedMembers : [] 
+      members: members
     });
     onOpenChange(false);
   };
