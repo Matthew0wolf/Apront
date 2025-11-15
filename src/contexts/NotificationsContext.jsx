@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
+import { API_BASE_URL } from '@/config/api';
 
 const NotificationsContext = createContext();
 
@@ -24,7 +25,7 @@ export const NotificationsProvider = ({ children }) => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const response = await fetch('http://localhost:5001/api/notifications?limit=20', {
+      const response = await fetch(`${API_BASE_URL}/api/notifications?limit=20`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -93,7 +94,7 @@ export const NotificationsProvider = ({ children }) => {
     try {
       const token = localStorage.getItem('token');
       
-      await fetch('http://localhost:5001/api/notifications/read-all', {
+      await fetch(`${API_BASE_URL}/api/notifications/read-all`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
