@@ -1,18 +1,39 @@
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask import request
 import json
+import os
+
+# Detecta se está em produção (Railway)
+IS_PRODUCTION = bool(
+    os.getenv('RAILWAY_ENVIRONMENT') or 
+    os.getenv('RAILWAY_ENVIRONMENT_NAME') or
+    os.getenv('RAILWAY_PROJECT_ID') or 
+    os.getenv('RAILWAY_SERVICE_NAME') or
+    os.getenv('RAILWAY_SERVICE_ID')
+)
+
+# Configura origens permitidas para CORS do WebSocket
+if IS_PRODUCTION:
+    # Em produção, permite qualquer origem do Railway
+    # O Railway gerencia segurança, então permitir todas as origens é seguro
+    cors_allowed_origins = "*"
+    print(f"🔧 WebSocket CORS: Permitindo qualquer origem em produção (Railway)")
+else:
+    # Em desenvolvimento, lista específica de origens
+    cors_allowed_origins = [
+        "http://localhost:3000", 
+        "http://localhost:3001", 
+        "http://127.0.0.1:3000", 
+        "http://127.0.0.1:3001",
+        "http://192.168.0.100:3000",
+        "http://192.168.0.100:3001",
+        "http://192.168.1.100:3000",
+        "http://192.168.1.100:3001"
+    ]
+    print(f"🔧 WebSocket CORS: Permitindo origens locais em desenvolvimento")
 
 # Inicializa o SocketIO (será importado no app.py)
-socketio = SocketIO(cors_allowed_origins=[
-    "http://localhost:3000", 
-    "http://localhost:3001", 
-    "http://127.0.0.1:3000", 
-    "http://127.0.0.1:3001",
-    "http://192.168.0.100:3000",
-    "http://192.168.0.100:3001",
-    "http://192.168.1.100:3000",
-    "http://192.168.1.100:3001"
-])
+socketio = SocketIO(cors_allowed_origins=cors_allowed_origins)
 
 @socketio.on('connect')
 def handle_connect():
