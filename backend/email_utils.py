@@ -4,10 +4,24 @@ from email.message import EmailMessage
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Carrega o arquivo .env da pasta backend
-backend_dir = Path(__file__).parent.absolute()
-env_path = backend_dir / '.env'
-load_dotenv(dotenv_path=env_path)
+# Detecta se está em produção (Railway) ANTES de carregar .env
+IS_PRODUCTION = bool(
+    os.getenv('RAILWAY_ENVIRONMENT') or 
+    os.getenv('RAILWAY_ENVIRONMENT_NAME') or
+    os.getenv('RAILWAY_PROJECT_ID') or 
+    os.getenv('RAILWAY_SERVICE_NAME') or
+    os.getenv('RAILWAY_SERVICE_ID')
+)
+
+# Carrega o arquivo .env APENAS em desenvolvimento local
+# Em produção (Railway), usa apenas variáveis de ambiente
+if not IS_PRODUCTION:
+    backend_dir = Path(__file__).parent.absolute()
+    env_path = backend_dir / '.env'
+    load_dotenv(dotenv_path=env_path)
+    print("[EMAIL] Carregando configurações do arquivo .env (desenvolvimento local)")
+else:
+    print("[EMAIL] Modo produção: usando apenas variáveis de ambiente do Railway")
 
 SMTP_SERVER = os.getenv('SMTP_SERVER')
 SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
@@ -107,35 +121,82 @@ Equipe Apront
     msg['To'] = to_email
     msg.set_content(body)
 
-    try:
-        print(f"[EMAIL] Tentando conectar ao servidor SMTP {SMTP_SERVER}:{SMTP_PORT}...")
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            print("[EMAIL] Iniciando TLS...")
-            server.starttls()
-            print(f"[EMAIL] Autenticando com usuario: {SMTP_USERNAME}...")
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            print(f"[EMAIL] Enviando e-mail para {to_email}...")
-            server.send_message(msg)
-        print(f"[SUCESSO] E-mail de verificacao enviado com sucesso para {to_email}")
-        return True
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"[ERRO] ERRO DE AUTENTICACAO: Credenciais invalidas")
-        print(f"   Verifique se o SMTP_USERNAME e SMTP_PASSWORD estao corretos")
-        print(f"   Para Gmail, certifique-se de usar uma 'Senha de App' e nao a senha normal")
-        print(f"   Detalhes: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    except smtplib.SMTPException as e:
-        print(f"[ERRO] ERRO SMTP: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    except Exception as e:
-        print(f"[ERRO] Erro ao enviar e-mail de verificacao: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    # Tenta primeiro com STARTTLS (porta 587), depois com SSL (porta 465)
+    methods = []
+    if SMTP_PORT == 587:
+        methods.append(('STARTTLS', SMTP_SERVER, 587))
+        methods.append(('SSL', SMTP_SERVER, 465))  # Fallback para SSL
+    elif SMTP_PORT == 465:
+        methods.append(('SSL', SMTP_SERVER, 465))
+        methods.append(('STARTTLS', SMTP_SERVER, 587))  # Fallback para STARTTLS
+    else:
+        methods.append(('STARTTLS', SMTP_SERVER, SMTP_PORT))
+        methods.append(('SSL', SMTP_SERVER, 465))  # Fallback para SSL
+
+    for method_name, server_host, server_port in methods:
+        try:
+            print(f"[EMAIL] Tentando conectar ao servidor SMTP {server_host}:{server_port} usando {method_name}...")
+            
+            if method_name == 'SSL':
+                # Usa SMTP_SSL para conexão SSL direta (porta 465)
+                with smtplib.SMTP_SSL(server_host, server_port, timeout=30) as server:
+                    print(f"[EMAIL] Autenticando com usuario: {SMTP_USERNAME}...")
+                    server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                    print(f"[EMAIL] Enviando e-mail para {to_email}...")
+                    server.send_message(msg)
+            else:
+                # Usa SMTP com STARTTLS (porta 587)
+                with smtplib.SMTP(server_host, server_port, timeout=30) as server:
+                    print("[EMAIL] Iniciando TLS...")
+                    server.starttls()
+                    print(f"[EMAIL] Autenticando com usuario: {SMTP_USERNAME}...")
+                    server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                    print(f"[EMAIL] Enviando e-mail para {to_email}...")
+                    server.send_message(msg)
+            
+            print(f"[SUCESSO] E-mail de verificacao enviado com sucesso para {to_email} usando {method_name}")
+            return True
+            
+        except (OSError, ConnectionError) as e:
+            error_msg = str(e)
+            print(f"[ERRO] Erro de conexao ao tentar {method_name} em {server_host}:{server_port}: {error_msg}")
+            if "Network is unreachable" in error_msg or "Connection refused" in error_msg:
+                print(f"   ⚠️  Railway pode estar bloqueando conexoes SMTP de saida")
+                print(f"   ⚠️  Tentando metodo alternativo...")
+                continue  # Tenta o próximo método
+            else:
+                import traceback
+                traceback.print_exc()
+                continue  # Tenta o próximo método
+                
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"[ERRO] ERRO DE AUTENTICACAO: Credenciais invalidas")
+            print(f"   Verifique se o SMTP_USERNAME e SMTP_PASSWORD estao corretos")
+            print(f"   Para Gmail, certifique-se de usar uma 'Senha de App' e nao a senha normal")
+            print(f"   Detalhes: {e}")
+            import traceback
+            traceback.print_exc()
+            return False  # Não tenta outro método se for erro de autenticação
+            
+        except smtplib.SMTPException as e:
+            print(f"[ERRO] ERRO SMTP com {method_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            continue  # Tenta o próximo método
+            
+        except Exception as e:
+            print(f"[ERRO] Erro ao enviar e-mail de verificacao usando {method_name}: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            continue  # Tenta o próximo método
+    
+    # Se chegou aqui, todos os métodos falharam
+    print(f"[ERRO CRITICO] Nao foi possivel enviar e-mail apos tentar todos os metodos")
+    print(f"   Verifique:")
+    print(f"   1. Se as variaveis SMTP estao configuradas no Railway")
+    print(f"   2. Se o Railway permite conexoes SMTP de saida")
+    print(f"   3. Se o firewall do Railway nao esta bloqueando as portas 587 e 465")
+    return False
 
 def send_email(to_email, subject, body):
     """
