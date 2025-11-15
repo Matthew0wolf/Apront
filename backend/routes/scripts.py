@@ -20,13 +20,25 @@ def get_item_script(item_id):
         current_user = g.current_user
         item = Item.query.get_or_404(item_id)
         
+        # CRÍTICO: Verificar se o item pertence a um rundown da mesma empresa
+        from models import Rundown
+        rundown = Rundown.query.get(item.folder.rundown_id) if item.folder else None
+        
+        if not rundown or rundown.company_id != current_user.company_id:
+            return jsonify({'error': 'Item não encontrado ou sem permissão'}), 404
+        
         # Montar resposta com todos os campos de script
+        try:
+            talking_points = json.loads(item.talking_points) if item.talking_points else []
+        except (json.JSONDecodeError, TypeError):
+            talking_points = []
+        
         script_data = {
             'id': item.id,
             'title': item.title,
             'duration': item.duration,
             'script': item.script or '',
-            'talking_points': json.loads(item.talking_points) if item.talking_points else [],
+            'talking_points': talking_points,
             'pronunciation_guide': item.pronunciation_guide or '',
             'presenter_notes': item.presenter_notes or ''
         }
@@ -34,6 +46,9 @@ def get_item_script(item_id):
         return jsonify(script_data), 200
         
     except Exception as e:
+        print(f"Erro ao obter script do item {item_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

@@ -5,7 +5,7 @@ from auth_utils import jwt_required, payment_required
 from limit_utils import limit_check, update_company_limits, log_usage
 from websocket_server import broadcast_rundown_update, broadcast_rundown_list_changed
 from sqlalchemy.orm import joinedload
-from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache, delete_cache
+from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache, delete_cache, invalidate_company_cache
 
 rundown_bp = Blueprint('rundown', __name__, url_prefix='/api/rundowns')
 
@@ -274,9 +274,9 @@ def delete_rundown(rundown_id):
         db.session.delete(rundown)
         db.session.commit()
         
-        # CRÍTICO: Invalidar cache da lista de rundowns
-        cache_key = f"rundowns:user:{user.id}:company:{user.company_id}"
-        delete_cache(cache_key)
+        # CRÍTICO: Invalidar cache da lista de rundowns para TODOS os usuários da empresa
+        # Isso garante que todos vejam a lista atualizada (operador, apresentador, etc.)
+        invalidate_company_cache(user.company_id)
         # Também invalida cache genérico do rundown
         invalidate_rundown_cache(rundown_id)
         
