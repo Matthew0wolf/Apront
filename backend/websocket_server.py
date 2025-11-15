@@ -128,9 +128,20 @@ def broadcast_folder_reorder(rundown_id, new_order):
         'new_order': new_order
     }, room=f'rundown_{rundown_id}')
 
-def broadcast_rundown_list_changed():
-    """Notifica clientes que a lista de rundowns mudou (criação/remoção)"""
-    socketio.emit('rundown_list_changed', { 'changed': True })
+def broadcast_rundown_list_changed(company_id=None):
+    """
+    Notifica clientes que a lista de rundowns mudou (criação/remoção)
+    Se company_id for fornecido, envia apenas para a sala da empresa.
+    Caso contrário, envia para todos os clientes conectados.
+    """
+    if company_id:
+        # Envia apenas para os clientes da mesma empresa
+        socketio.emit('rundown_list_changed', { 'changed': True }, room=f'company_{company_id}')
+        print(f'📡 WebSocket: Lista de rundowns alterada notificada para empresa {company_id}')
+    else:
+        # Envia para todos os clientes (fallback para compatibilidade)
+        socketio.emit('rundown_list_changed', { 'changed': True }, broadcast=True)
+        print(f'📡 WebSocket: Lista de rundowns alterada notificada para todos os clientes')
 
 @socketio.on('presenter_config_update')
 def handle_presenter_config_update(config):

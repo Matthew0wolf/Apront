@@ -177,9 +177,9 @@ def import_template(template_id):
     t.downloads = (t.downloads or 0) + 1
     db.session.commit()
 
-    # Notifica lista alterada
+    # Notifica lista alterada para todos os usuários da empresa
     try:
-        broadcast_rundown_list_changed()
+        broadcast_rundown_list_changed(company_id=g.current_user.company_id)
     except Exception:
         pass
 

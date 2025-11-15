@@ -123,7 +123,7 @@ def create_rundown():
     log_usage(g.current_user.company_id, g.current_user.id, 'create_rundown', 'rundown', rundown.id, {'name': rundown.name})
     
     try:
-        broadcast_rundown_list_changed()
+        broadcast_rundown_list_changed(company_id=g.current_user.company_id)
     except Exception:
         pass
     return jsonify({'message': 'Rundown criado com sucesso', 'id': rundown.id}), 201
@@ -280,9 +280,9 @@ def delete_rundown(rundown_id):
         # Também invalida cache genérico do rundown
         invalidate_rundown_cache(rundown_id)
         
-        # Notificar via WebSocket
+        # Notificar via WebSocket para todos os usuários da empresa
         try:
-            broadcast_rundown_list_changed()
+            broadcast_rundown_list_changed(company_id=user.company_id)
         except Exception:
             pass  # Não falha se WebSocket não funcionar
         
@@ -336,7 +336,7 @@ def update_rundown_members(rundown_id):
     db.session.commit()
 
     try:
-        broadcast_rundown_list_changed()
+        broadcast_rundown_list_changed(company_id=user.company_id)
     except Exception:
         pass
 
