@@ -33,9 +33,12 @@ const getApiUrl = () => {
     return 'http://localhost:5001';
   }
   
-  // Se estiver rodando em um IP da rede (ex: 192.168.0.100), usa o mesmo IP com porta 5001
-  const apiUrl = `http://${window.location.hostname}:5001`;
-  console.log('🌐 Detectado acesso via rede:', window.location.hostname, '-> Backend:', apiUrl);
+  // Se estiver rodando em produção/VPS (não localhost), usa o mesmo domínio
+  // O Nginx faz proxy para o backend na porta 5001
+  // Isso permite que WebSocket funcione através do Nginx
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  const apiUrl = `${protocol}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}`;
+  console.log('🌐 Detectado acesso em produção/VPS:', window.location.hostname, '-> Backend via Nginx:', apiUrl);
   return apiUrl;
 };
 
