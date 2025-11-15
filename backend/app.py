@@ -36,11 +36,44 @@ app = Flask(__name__)
 # Tenta usar PostgreSQL (via variável de ambiente), senão usa SQLite
 # Em produção (Railway/VPS): configure DATABASE_URL nas variáveis de ambiente
 # Em desenvolvimento local: deixe DATABASE_URL vazio para usar SQLite
+
+# Railway pode fornecer DATABASE_URL ou variáveis individuais
 DATABASE_URL = os.getenv('DATABASE_URL')
 
+# Se não tiver DATABASE_URL, tenta construir a partir de variáveis individuais do Railway
+if not DATABASE_URL:
+    pg_host = os.getenv('PGHOST')
+    pg_port = os.getenv('PGPORT', '5432')
+    pg_user = os.getenv('PGUSER')
+    pg_password = os.getenv('PGPASSWORD')
+    pg_database = os.getenv('PGDATABASE')
+    
+    if all([pg_host, pg_user, pg_password, pg_database]):
+        DATABASE_URL = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
+        print(f"✅ Construído DATABASE_URL a partir de variáveis individuais do Railway")
+
 if DATABASE_URL:
+    # Verifica se está usando localhost em produção (erro comum)
+    if 'localhost' in DATABASE_URL or '127.0.0.1' in DATABASE_URL:
+        # Em produção (Railway), localhost não funciona
+        # Verifica se está em ambiente de produção
+        if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID'):
+            print(f"⚠️  AVISO: DATABASE_URL contém 'localhost' mas está em produção!")
+            print(f"   Isso não funcionará no Railway.")
+            print(f"   Configure DATABASE_URL=${{{{Postgres.DATABASE_URL}}}} nas variáveis de ambiente do Railway")
+            print(f"   URL atual: {DATABASE_URL[:50]}...")
+    
     # PostgreSQL configurado (produção ou Docker)
-    print(f"Usando PostgreSQL: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'configurado'}")
+    # Mostra apenas host:port/database para segurança
+    try:
+        if '@' in DATABASE_URL:
+            db_info = DATABASE_URL.split('@')[1]
+            print(f"✅ Usando PostgreSQL: {db_info}")
+        else:
+            print(f"✅ Usando PostgreSQL: configurado")
+    except:
+        print(f"✅ Usando PostgreSQL: configurado")
+    
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_size': 10,
@@ -49,7 +82,7 @@ if DATABASE_URL:
     }
 else:
     # SQLite para desenvolvimento local
-    print("Usando SQLite (desenvolvimento local)")
+    print("📦 Usando SQLite (desenvolvimento local)")
     sqlite_path = os.path.join(os.path.dirname(__file__), 'rundowns.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{sqlite_path}'
 
