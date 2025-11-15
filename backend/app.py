@@ -311,4 +311,12 @@ if __name__ == '__main__':
     # Porta configurável via variável de ambiente
     port = int(os.getenv('PORT', 5001))
     debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
-    socketio.run(app, debug=debug_mode, host='0.0.0.0', port=port)
+    
+    # Em produção (Railway), precisa permitir Werkzeug (não ideal, mas necessário)
+    # Em desenvolvimento, debug_mode já controla isso
+    if IS_PRODUCTION:
+        print(f"🚀 Iniciando servidor em produção (Railway) na porta {port}")
+        socketio.run(app, debug=False, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
+    else:
+        print(f"🔧 Iniciando servidor em desenvolvimento na porta {port}")
+        socketio.run(app, debug=debug_mode, host='0.0.0.0', port=port)
