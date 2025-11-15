@@ -116,6 +116,7 @@ def register():
         })
     else:
         # Em produção, não retorna o token - apenas informa o erro
+        # O cadastro só pode continuar se o email for enviado com sucesso
         return jsonify({
             'error': 'Erro ao enviar email de verificação. Verifique as configurações SMTP do servidor.',
             'message': 'Por favor, entre em contato com o administrador do sistema.'
