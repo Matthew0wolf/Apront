@@ -339,39 +339,54 @@ export const RundownProvider = ({ children }) => {
   };
 
   const handleDeleteRundown = async (rundownId) => {
-    const rundownToDelete = rundowns.find(r => r.id === rundownId);
-    if (!rundownToDelete) return;
+    const rundownToDelete = rundowns.find(r => String(r.id) === String(rundownId));
+    if (!rundownToDelete) {
+      // Se não encontrou, pode já ter sido deletado - recarrega lista
+      fetchRundowns();
+      return;
+    }
+    
+    // Remove imediatamente da lista local (atualização otimista)
+    setRundowns(prev => prev.filter(r => String(r.id) !== String(rundownId)));
+    
     try {
       // IDs locais (string) não existem no backend: remove localmente
       if (isNaN(Number(rundownId))) {
-        setRundowns(prev => prev.filter(r => r.id !== rundownId));
+        // Já removido acima, apenas limpa localStorage
       } else {
         const res = await apiCall(`/api/rundowns/${rundownId}`, {
           method: 'DELETE'
         });
-        if (!res.ok) throw new Error('Erro ao deletar rundown');
-        
-        // Remove imediatamente da lista local (otimista)
-        setRundowns(prev => prev.filter(r => r.id !== rundownId));
+        if (!res.ok) {
+          // Se der erro, recarrega lista do servidor para reverter
+          fetchRundowns();
+          throw new Error('Erro ao deletar rundown');
+        }
       }
+      
+      // Limpa localStorage
       localStorage.removeItem(`rundownState_${rundownId}`);
       localStorage.removeItem(`currentItemIndex_${rundownId}`);
       localStorage.removeItem(`isRunning_${rundownId}`);
       localStorage.removeItem(`timeElapsed_${rundownId}`);
-      if (activeRundown?.id === rundownId) {
+      
+      // Se era o rundown ativo, limpa estado
+      if (String(activeRundown?.id) === String(rundownId)) {
         setActiveRundown(null);
         setIsTimerRunning(false);
         setTimeElapsed(0);
       }
+      
       toast({
         variant: "destructive",
         title: "🗑️ Rundown Deletado!",
         description: `O rundown "${rundownToDelete.name}" foi removido.`,
       });
+      
       // Recarrega do servidor para garantir sincronização
       fetchRundowns();
     } catch (err) {
-      // Se der erro, recarrega a lista do servidor
+      // Se der erro, recarrega a lista do servidor para reverter mudança otimista
       fetchRundowns();
       toast({
         variant: 'destructive',

@@ -5,7 +5,7 @@ from auth_utils import jwt_required, payment_required
 from limit_utils import limit_check, update_company_limits, log_usage
 from websocket_server import broadcast_rundown_update, broadcast_rundown_list_changed
 from sqlalchemy.orm import joinedload
-from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache
+from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache, delete_cache
 
 rundown_bp = Blueprint('rundown', __name__, url_prefix='/api/rundowns')
 
@@ -261,6 +261,12 @@ def delete_rundown(rundown_id):
         # Deletar o rundown (cascade deleta folders e items automaticamente)
         db.session.delete(rundown)
         db.session.commit()
+        
+        # CRÍTICO: Invalidar cache da lista de rundowns
+        cache_key = f"rundowns:user:{user.id}:company:{user.company_id}"
+        delete_cache(cache_key)
+        # Também invalida cache genérico do rundown
+        invalidate_rundown_cache(rundown_id)
         
         # Notificar via WebSocket
         try:
