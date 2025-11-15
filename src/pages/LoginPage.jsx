@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useContext } from 'react';
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -14,17 +15,26 @@ const LoginPage = () => {
     e.preventDefault();
     setError(null);
     try {
-      const res = await fetch('http://localhost:5001/api/auth/login', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       });
+      
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Erro ao fazer login' }));
+        throw new Error(data.error || 'Erro ao fazer login');
+      }
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao fazer login');
       login(data.user, data.token);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message);
+      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
+        setError('Não foi possível conectar ao servidor. Verifique se o backend está rodando em ' + API_BASE_URL);
+      } else {
+        setError(err.message);
+      }
     }
   };
 

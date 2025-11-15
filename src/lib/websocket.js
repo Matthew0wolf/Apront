@@ -59,7 +59,8 @@ class WebSocketManager {
 
     // Eventos específicos do rundown
     this.socket.on('rundown_updated', (data) => {
-      console.log('📡 Rundown atualizado via WebSocket:', data);
+      console.log('📡 WebSocket: Rundown atualizado recebido:', data);
+      console.log('📡 WebSocket: Dados completos:', JSON.stringify(data, null, 2));
       this.handleRundownUpdate(data);
     });
 
@@ -120,17 +121,22 @@ class WebSocketManager {
 
   // Métodos para disparar eventos customizados
   handleRundownUpdate(data) {
+    console.log('📡 WebSocketManager: Processando atualização de rundown:', data);
+    
     const handler = this.eventHandlers.get('rundown_updated');
     if (handler) {
       handler(data);
     }
     
     // Dispara evento customizado para compatibilidade com código existente
+    const eventData = {
+      rundownId: data.rundown_id || data.rundownId,
+      changes: data.changes || {}
+    };
+    
+    console.log('📡 WebSocketManager: Disparando evento rundownSync:', eventData);
     window.dispatchEvent(new CustomEvent('rundownSync', { 
-      detail: { 
-        rundownId: data.rundown_id, 
-        changes: data.changes 
-      } 
+      detail: eventData
     }));
   }
 

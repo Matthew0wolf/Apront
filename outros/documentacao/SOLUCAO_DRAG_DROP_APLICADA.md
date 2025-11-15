@@ -1,4 +1,4 @@
-# Solução Drag-and-Drop Aplicada - Alternativa 2 (Escalável)
+
 
 ## ✅ Implementação Completa
 

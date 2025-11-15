@@ -48,12 +48,15 @@ def handle_rundown_updated(data):
     rundown_id = data.get('rundown_id')
     changes = data.get('changes', {})
     
+    print(f'📡 WebSocket: Recebida atualização de rundown {rundown_id}: {changes}')
+    
     if rundown_id:
-        # Envia para todos os clientes no mesmo rundown
+        # Envia para todos os clientes no mesmo rundown (incluindo o remetente para garantir sincronização)
         emit('rundown_updated', {
             'rundown_id': rundown_id,
             'changes': changes
-        }, room=f'rundown_{rundown_id}', include_self=False)
+        }, room=f'rundown_{rundown_id}', include_self=True)
+        print(f'✅ WebSocket: Atualização enviada para sala rundown_{rundown_id}')
 
 @socketio.on('item_reordered')
 def handle_item_reordered(data):
@@ -113,8 +116,8 @@ def handle_presenter_config_update(config):
     Recebe atualizações de configuração do apresentador do operador
     e transmite para todos os clientes conectados ao mesmo rundown
     """
-    print(f'📤 WebSocket: Recebendo configuração do apresentador: {config}')
+    print(f'📡 WebSocket: Recebendo configuração do apresentador: {config}')
     
-    # Transmite para todos os clientes (exceto o remetente)
-    emit('presenter_config_update', config, broadcast=True, include_self=False)
-    print(f'✅ WebSocket: Configuração transmitida para clientes conectados')
+    # Transmite para todos os clientes (incluindo o remetente para garantir sincronização)
+    emit('presenter_config_update', config, broadcast=True, include_self=True)
+    print(f'✅ WebSocket: Configuração transmitida para todos os clientes conectados')

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '@/config/api';
 
 const RegisterPage = () => {
   const [name, setName] = useState('');
@@ -19,13 +20,18 @@ const RegisterPage = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5001/api/auth/register', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, company })
       });
+      
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Erro ao enviar token' }));
+        throw new Error(data.error || 'Erro ao enviar token');
+      }
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao enviar token');
       
       // Se o email foi enviado com sucesso, não mostra o token
       // Se falhou o envio, mostra o token para debug
@@ -36,7 +42,11 @@ const RegisterPage = () => {
       setStep(2);
       setSuccess(true);
     } catch (err) {
-      setError(err.message);
+      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
+        setError('Não foi possível conectar ao servidor. Verifique se o backend está rodando em ' + API_BASE_URL);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -47,7 +57,7 @@ const RegisterPage = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5001/api/auth/verify-token', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/verify-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -58,12 +68,21 @@ const RegisterPage = () => {
           token: verificationToken 
         })
       });
+      
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Erro ao verificar token' }));
+        throw new Error(data.error || 'Erro ao verificar token');
+      }
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao verificar token');
       setSuccess(true);
       setTimeout(() => navigate('/login'), 1500);
     } catch (err) {
-      setError(err.message);
+      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
+        setError('Não foi possível conectar ao servidor. Verifique se o backend está rodando em ' + API_BASE_URL);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }

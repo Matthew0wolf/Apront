@@ -9,8 +9,33 @@ def check_company_limits(company_id, action, resource_type=None, resource_id=Non
     try:
         # Busca a empresa e seu plano
         company = Company.query.get(company_id)
-        if not company or not company.plan:
-            return False, "Empresa ou plano não encontrado"
+        if not company:
+            return False, "Empresa não encontrada"
+        
+        # Se não tem plano, cria um plano padrão (gratuito)
+        if not company.plan_id:
+            # Busca ou cria plano gratuito padrão
+            default_plan = Plan.query.filter_by(name='Gratuito').first()
+            if not default_plan:
+                default_plan = Plan(
+                    name='Gratuito',
+                    description='Plano gratuito padrão',
+                    price=0.0,
+                    max_members=5,
+                    max_rundowns=10,
+                    max_storage_gb=1,
+                    is_active=True,
+                    created_at=datetime.datetime.utcnow().isoformat()
+                )
+                db.session.add(default_plan)
+                db.session.flush()
+            
+            company.plan_id = default_plan.id
+            db.session.commit()
+            company = Company.query.get(company_id)  # Recarrega para ter o relacionamento
+        
+        if not company.plan:
+            return False, "Plano não encontrado"
         
         # Busca ou cria os limites da empresa
         limits = CompanyLimits.query.filter_by(company_id=company_id).first()

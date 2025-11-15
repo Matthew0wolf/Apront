@@ -17,7 +17,8 @@ from datetime import datetime
 
 # Configurações
 SQLITE_DB = 'rundowns.db'
-POSTGRES_URL = os.getenv('DATABASE_URL', 'postgresql://apront_user:apront_password_2024@localhost:5432/apront_db')
+# Usa variável de ambiente ou padrão (porta 5433 para Docker)
+POSTGRES_URL = os.getenv('DATABASE_URL', 'postgresql://apront_user:apront_password_2024@localhost:5433/apront_db')
 
 def get_sqlite_connection():
     """Conecta ao banco SQLite"""
@@ -137,7 +138,7 @@ def migrate_all_data():
         ('plans', ['id', 'name', 'description', 'price', 'max_members', 'max_rundowns', 'max_storage_gb', 'features', 'billing_cycle', 'is_active', 'created_at', 'updated_at']),
         ('companies', ['id', 'name', 'domain', 'plan_id', 'created_at', 'updated_at', 'status', 'trial_ends_at']),
         ('users', ['id', 'name', 'email', 'password_hash', 'role', 'company_id', 'joined_at', 'last_active', 'status', 'avatar', 'updated_at', 'can_operate', 'can_present']),
-        ('rundowns', ['id', 'name', 'type', 'created', 'last_modified', 'status', 'duration', 'team_members']),
+        ('rundowns', ['id', 'name', 'type', 'created', 'last_modified', 'status', 'duration', 'team_members', 'company_id']),
         ('rundown_members', ['id', 'rundown_id', 'user_id', 'role']),
         ('folders', ['id', 'title', 'ordem', 'rundown_id']),
         ('items', ['id', 'title', 'duration', 'description', 'type', 'status', 'icon_type', 'icon_data', 'color', 'urgency', 'reminder', 'ordem', 'folder_id', 'script', 'talking_points', 'pronunciation_guide', 'presenter_notes']),

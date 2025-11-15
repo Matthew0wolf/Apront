@@ -26,8 +26,8 @@ class Plan(db.Model):
     # Features incluem: { "has_teleprompter": true, "has_rehearsal_mode": true, "has_analytics": true }
     billing_cycle = db.Column(db.String(20), default='monthly')
     is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.String(20))
-    updated_at = db.Column(db.String(20))
+    created_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    updated_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
 
 # Empresa/Organização
 class Company(db.Model):
@@ -37,10 +37,11 @@ class Company(db.Model):
     domain = db.Column(db.String(120))  # Para verificação de domínio
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id'))
     plan = relationship('Plan')
-    created_at = db.Column(db.String(20))
-    updated_at = db.Column(db.String(20))
+    created_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    updated_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
     status = db.Column(db.String(30), default='active')  # active, suspended, cancelled
-    trial_ends_at = db.Column(db.String(20))  # Data de fim do trial
+    trial_ends_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    payment_verified = db.Column(db.Boolean, default=False)  # Pagamento verificado (acesso liberado)
     members = relationship('User', backref='company', cascade='all, delete-orphan')
     subscriptions = relationship('Subscription', backref='company', cascade='all, delete-orphan')
 
@@ -53,13 +54,13 @@ class Subscription(db.Model):
     plan = relationship('Plan')
     status = db.Column(db.String(30), default='active')  # active, past_due, cancelled, trialing
     payment_method = db.Column(db.String(50))  # credit_card, bank_transfer, etc
-    payment_date = db.Column(db.String(20))
-    next_billing_date = db.Column(db.String(20))
+    payment_date = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    next_billing_date = db.Column(db.String(50))  # Aumentado para suportar ISO format
     amount_paid = db.Column(db.Float, default=0.0)
     external_subscription_id = db.Column(db.String(100))  # ID do gateway de pagamento
-    created_at = db.Column(db.String(20))
-    updated_at = db.Column(db.String(20))
-    cancelled_at = db.Column(db.String(20))
+    created_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    updated_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    cancelled_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
 
 # Usuário do sistema
 class User(db.Model):
@@ -67,14 +68,14 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)  # Aumentado para suportar scrypt (até ~130 caracteres)
     role = db.Column(Enum(UserRole), nullable=False)
     company_id = db.Column(db.Integer, db.ForeignKey('companies.id'))
-    joined_at = db.Column(db.String(20))
-    last_active = db.Column(db.String(40))
+    joined_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    last_active = db.Column(db.String(50))  # Aumentado para suportar ISO format
     status = db.Column(db.String(30), default='active')
     avatar = db.Column(db.String(100))  # Nome do arquivo de avatar
-    updated_at = db.Column(db.String(20))  # Data da última atualização
+    updated_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
     
     # Permissões modulares
     can_operate = db.Column(db.Boolean, default=False)  # Pode acessar operador
@@ -120,7 +121,7 @@ class Invite(db.Model):
     role = db.Column(Enum(UserRole), nullable=False)
     invited_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     status = db.Column(db.String(30), default='pending')
-    sent_at = db.Column(db.String(20))
+    sent_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
     token = db.Column(db.String(64), unique=True, nullable=False)
 
 # Token de verificação de email
@@ -129,9 +130,9 @@ class VerificationToken(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), nullable=False)
     token = db.Column(db.String(8), nullable=False)  # 6-8 dígitos
-    expires_at = db.Column(db.String(20), nullable=False)
+    expires_at = db.Column(db.String(50), nullable=False)  # Aumentado para suportar ISO format
     used = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.String(50), nullable=False)  # Aumentado para suportar ISO format
 
 
 class TeamMember(db.Model):
@@ -141,8 +142,8 @@ class TeamMember(db.Model):
     email = db.Column(db.String(120), nullable=False)
     role = db.Column(db.String(30), nullable=False)
     status = db.Column(db.String(30), nullable=False)
-    joined_at = db.Column(db.String(20))
-    last_active = db.Column(db.String(40))
+    joined_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    last_active = db.Column(db.String(50))  # Aumentado para suportar ISO format
     avatar = db.Column(db.String(10))
 
 class Rundown(db.Model):
@@ -151,10 +152,11 @@ class Rundown(db.Model):
     name = db.Column(db.String(120), nullable=False)
     type = db.Column(db.String(50))
     created = db.Column(db.String(20))
-    last_modified = db.Column(db.String(20))
+    last_modified = db.Column(db.String(50))  # Aumentado para suportar ISO format
     status = db.Column(db.String(30))
     duration = db.Column(db.String(20))
     team_members = db.Column(db.Integer)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)  # CRÍTICO: Isolamento por empresa
     folders = db.relationship('Folder', backref='rundown', cascade='all, delete-orphan')
 
 
@@ -209,7 +211,7 @@ class UsageLog(db.Model):
     resource_type = db.Column(db.String(50))  # rundown, user, storage
     resource_id = db.Column(db.Integer)
     metadata_json = db.Column(db.Text)  # JSON com dados adicionais
-    created_at = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.String(50), nullable=False)  # Aumentado para suportar ISO format
 
 # Configurações de limite por empresa
 class CompanyLimits(db.Model):
@@ -219,7 +221,7 @@ class CompanyLimits(db.Model):
     current_members = db.Column(db.Integer, default=0)
     current_rundowns = db.Column(db.Integer, default=0)
     current_storage_gb = db.Column(db.Float, default=0.0)
-    last_updated = db.Column(db.String(20))
+    last_updated = db.Column(db.String(50))  # Aumentado para suportar ISO format
 
 
 # Templates marketplace
@@ -239,7 +241,7 @@ class Template(db.Model):
     rating_cached = db.Column(db.Float, default=0.0)  # média de 0-5
     rating_count = db.Column(db.Integer, default=0)
     structure_json = db.Column(db.Text)  # JSON da estrutura do template
-    created_at = db.Column(db.String(20))
+    created_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
 
 
 class TemplateLike(db.Model):
@@ -256,8 +258,8 @@ class TemplateRating(db.Model):
     template_id = db.Column(db.Integer, db.ForeignKey('templates.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     stars = db.Column(db.Integer, nullable=False)  # 1-5
-    created_at = db.Column(db.String(20))
-    updated_at = db.Column(db.String(20))
+    created_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
+    updated_at = db.Column(db.String(50))  # Aumentado para suportar ISO format
 
 
 # Ensaios/Treinos do Apresentador

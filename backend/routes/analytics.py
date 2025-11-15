@@ -19,8 +19,8 @@ def get_admin_dashboard():
         
         # Métricas básicas
         total_users = User.query.filter_by(company_id=company_id).count()
-        # Total de rundowns (não há vínculo de empresa no modelo Rundown ainda)
-        total_rundowns = Rundown.query.count()
+        # CRÍTICO: Filtrar rundowns por company_id
+        total_rundowns = Rundown.query.filter_by(company_id=company_id).count()
         
         # Uso dos últimos 30 dias
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
@@ -30,7 +30,8 @@ def get_admin_dashboard():
         ).count()
         
         # Rundowns ao vivo (em execução) - considerar status 'Ao Vivo' e 'active'
-        live_query = Rundown.query.filter(Rundown.status.in_(['Ao Vivo', 'active']))
+        # CRÍTICO: Filtrar por company_id
+        live_query = Rundown.query.filter_by(company_id=company_id).filter(Rundown.status.in_(['Ao Vivo', 'active']))
         active_rundowns = live_query.count()
         live_rundowns = [
             {

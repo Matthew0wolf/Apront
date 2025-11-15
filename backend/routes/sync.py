@@ -15,10 +15,11 @@ sync_data = {}
 def get_changes(rundown_id):
     """Retorna as mudanças mais recentes para um rundown"""
     try:
-        # Verifica se o usuário tem acesso ao rundown
-        rundown = Rundown.query.get(rundown_id)
+        user = g.current_user
+        # CRÍTICO: Verificar se rundown pertence à mesma empresa
+        rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
         if not rundown:
-            return jsonify({'error': 'Rundown não encontrado'}), 404
+            return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
         
         # Retorna as mudanças se existirem
         changes = sync_data.get(str(rundown_id), {})

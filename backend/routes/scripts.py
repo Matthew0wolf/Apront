@@ -43,9 +43,26 @@ def update_item_script(item_id):
     """Atualiza o script de um item"""
     try:
         current_user = g.current_user
+        
+        if not current_user or not current_user.company_id:
+            return jsonify({'error': 'Usuário sem empresa associada'}), 403
+        
         data = request.get_json()
         
         item = Item.query.get_or_404(item_id)
+        
+        # CRÍTICO: Verificar se o item pertence à mesma empresa do usuário
+        # Buscar o folder do item e depois o rundown
+        folder = Folder.query.get(item.folder_id)
+        if not folder:
+            return jsonify({'error': 'Pasta não encontrada'}), 404
+        
+        rundown = Rundown.query.get(folder.rundown_id)
+        if not rundown:
+            return jsonify({'error': 'Rundown não encontrado'}), 404
+        
+        if rundown.company_id != current_user.company_id:
+            return jsonify({'error': 'Sem permissão para editar este item'}), 403
         
         # Atualizar campos de script
         if 'script' in data:
@@ -90,7 +107,10 @@ def get_rundown_scripts(rundown_id):
     """Obtém todos os scripts de um rundown (para o apresentador ver tudo)"""
     try:
         current_user = g.current_user
-        rundown = Rundown.query.get_or_404(rundown_id)
+        # CRÍTICO: Verificar se rundown pertence à mesma empresa
+        rundown = Rundown.query.filter_by(id=rundown_id, company_id=current_user.company_id).first()
+        if not rundown:
+            return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
         
         # Buscar todas as pastas e itens do rundown
         folders = Folder.query.filter_by(rundown_id=rundown_id).order_by(Folder.ordem).all()

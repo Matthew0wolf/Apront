@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Play, Pause, Square, SkipForward, ArrowLeft, Users, Wifi, WifiOff, Edit, Plus, Folder, Trash2, MousePointerClick, GripVertical, FileText, Monitor, Eye, EyeOff, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -11,8 +11,8 @@ import PresenterConfigDialog from '@/components/dialogs/PresenterConfigDialog';
 import LiveClock from '@/components/shared/LiveClock';
 import FormattedScript from '@/components/shared/FormattedScript';
 import * as Icons from 'lucide-react';
-import { motion } from 'framer-motion';
-import { useRundown } from '@/contexts/RundownContext.jsx';
+import { Reorder, motion } from 'framer-motion';
+import { useRundown, isDraggingRef as globalDragRef } from '@/contexts/RundownContext.jsx';
 import { useTimer } from '@/contexts/TimerContext.jsx';
 import { useSync } from '@/contexts/SyncContext.jsx';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -80,7 +80,6 @@ const OperatorView = () => {
     syncTimerState,
     syncCurrentItemChange,
     syncRundownUpdate,
-    isDraggingRef: globalDragRef,
   } = useRundown();
 
   const { isConnected, setActiveRundownId, updateRundownStatus } = useSync();
@@ -97,6 +96,67 @@ const OperatorView = () => {
 
   const { timeElapsed, setTimeElapsed } = useTimer();
 
+  // Cálculo do item atual e tempo restante para alertas
+  const currentItem = useMemo(() => {
+    if (!rundown || !rundown.items) return null;
+    return rundown.items[currentItemIndex.folderIndex]?.children[currentItemIndex.itemIndex];
+  }, [rundown, currentItemIndex]);
+
+  const itemElapsedTime = useMemo(() => {
+    if (!currentItem || !isRunning || !rundown) return 0;
+    const itemStartTime = calculateElapsedTimeForIndex(
+      currentItemIndex.folderIndex, 
+      currentItemIndex.itemIndex, 
+      rundown.items
+    );
+    return timeElapsed - itemStartTime;
+  }, [timeElapsed, currentItem, currentItemIndex, rundown, isRunning, calculateElapsedTimeForIndex]);
+
+  const remainingTime = useMemo(() => {
+    if (!currentItem || !isRunning) return currentItem?.duration || 0;
+    return Math.max(currentItem.duration - itemElapsedTime, 0);
+  }, [itemElapsedTime, currentItem, isRunning]);
+
+  const flatItems = useMemo(() => rundown?.items.flatMap(f => f.children) || [], [rundown]);
+  const globalCurrentIndex = useMemo(() => {
+    if (!rundown) return -1;
+    return rundown.items.slice(0, currentItemIndex.folderIndex).reduce((acc, f) => acc + f.children.length, 0) + currentItemIndex.itemIndex;
+  }, [rundown, currentItemIndex]);
+
+  // AudioContext e alertas sonoros para operador
+  const audioContextRef = useRef(null);
+  const triggeredAlerts = useRef(new Set());
+
+  // Inicializa AudioContext na primeira interação do usuário
+  useEffect(() => {
+    const initAudioContext = async () => {
+      if (!audioContextRef.current) {
+        try {
+          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+          }
+        } catch (error) {
+          console.warn('Erro ao inicializar AudioContext:', error);
+        }
+      }
+    };
+    
+    const handleUserInteraction = () => {
+      initAudioContext();
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+    
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+    
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, []);
+
   const [isOnline, setIsOnline] = useState(true);
   const [editingItem, setEditingItem] = useState(null);
   const [editingFolder, setEditingFolder] = useState(null);
@@ -104,19 +164,103 @@ const OperatorView = () => {
   const { toast } = useToast();
   const { addNotification } = useNotifications();
 
+  // Função para tocar som de alerta
+  const playAlertSound = useCallback(async (frequency = 800, duration = 200) => {
+    // Verifica se deve tocar som baseado na configuração
+    const shouldPlay = presenterConfig.audioAlerts === 'operator' || presenterConfig.audioAlerts === 'both';
+    if (!shouldPlay) {
+      return;
+    }
+    
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      
+      const oscillator = audioContextRef.current.createOscillator();
+      const gainNode = audioContextRef.current.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContextRef.current.destination);
+      
+      oscillator.frequency.value = frequency;
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0.3, audioContextRef.current.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + duration / 1000);
+      
+      oscillator.start(audioContextRef.current.currentTime);
+      oscillator.stop(audioContextRef.current.currentTime + duration / 1000);
+    } catch (error) {
+      console.error('Erro ao tocar som:', error);
+    }
+  }, [presenterConfig.audioAlerts]);
+
+  // Alertas sonoros para operador
+  useEffect(() => {
+    if (!currentItem || !isRunning) {
+      triggeredAlerts.current.clear();
+      return;
+    }
+
+    const remainingSeconds = Math.round(remainingTime);
+    const nextItem = flatItems[globalCurrentIndex + 1];
+
+    const showToast = (title, description) => {
+      toast({
+        title,
+        description,
+        duration: 3000,
+      });
+    };
+
+    if (remainingSeconds === 60 && !triggeredAlerts.current.has('1min')) {
+      if (nextItem) showToast('⏳ 1 Minuto Restante', `Próximo evento: ${nextItem.title}`);
+      playAlertSound(600, 300);
+      triggeredAlerts.current.add('1min');
+    }
+
+    if (remainingSeconds === 30 && !triggeredAlerts.current.has('30s')) {
+      if (nextItem) showToast('⏳ 30 Segundos Restantes', `Próximo evento: ${nextItem.title}`);
+      playAlertSound(800, 250);
+      triggeredAlerts.current.add('30s');
+    }
+
+    if (remainingSeconds <= 10 && remainingSeconds > 0 && !triggeredAlerts.current.has(`countdown-${remainingSeconds}`)) {
+      if (nextItem) showToast(`⏳ ${remainingSeconds} segundos...`, `Preparar para: ${nextItem.title}`);
+      playAlertSound(1000, 150);
+      triggeredAlerts.current.add(`countdown-${remainingSeconds}`);
+    }
+  }, [remainingTime, currentItem, isRunning, flatItems, globalCurrentIndex, toast, playAlertSound]);
+
+  useEffect(() => {
+    if (currentItem) {
+      triggeredAlerts.current.clear();
+    }
+  }, [currentItem]);
+
   // Refs para gerenciar estado local durante drag (Alternativa 2 - Escalável)
   const localRundownRef = useRef(null);
+  
+  // Ref para o indicador de drop (resolve problema de stale state)
+  const dropIndicatorRef = useRef({ show: false, index: -1, type: null, folderIndex: null });
   
   // Sincroniza ref local com estado quando muda
   useEffect(() => {
     if (!globalDragRef.current) {
       localRundownRef.current = rundown;
     }
-  }, [rundown, globalDragRef]);
+  }, [rundown]); // Removido globalDragRef das dependências para evitar loop, mas o efeito é o mesmo. O uso de globalDragRef no if já garante o comportamento.
 
   useEffect(() => {
     if (!rundown || rundown.id !== projectId) {
+      console.log('🔗 OperatorView: Carregando rundown:', projectId);
       const rundownData = loadRundownState(projectId);
+      console.log('🔗 OperatorView: Rundown carregado:', rundownData?.name);
       if (!rundownData) {
         toast({ variant: "destructive", title: "Erro", description: "Rundown não encontrado." });
         navigate(`/project/${projectId}/select-role`);
@@ -297,11 +441,12 @@ const OperatorView = () => {
           // V: Aumentar velocidade do scroll
           if (presenterConfig.autoScroll) {
             e.preventDefault();
-            const newSpeedUp = Math.min(2.0, presenterConfig.scrollSpeed + 0.1);
-            updatePresenterConfig({ scrollSpeed: parseFloat(newSpeedUp.toFixed(1)) });
+            // Incremento menor para controle mais fino
+            const newSpeedUp = Math.min(2.0, presenterConfig.scrollSpeed + 0.05);
+            updatePresenterConfig({ scrollSpeed: parseFloat(newSpeedUp.toFixed(2)) });
             toast({ 
               title: `⚡ Velocidade Aumentada (Apresentador)`,
-              description: `Velocidade: ${newSpeedUp.toFixed(1)}x`,
+              description: `Velocidade: ${newSpeedUp.toFixed(2)}x`,
               duration: 1500
             });
           }
@@ -311,11 +456,12 @@ const OperatorView = () => {
           // B: Diminuir velocidade do scroll
           if (presenterConfig.autoScroll) {
             e.preventDefault();
-            const newSpeedDown = Math.max(0.5, presenterConfig.scrollSpeed - 0.1);
-            updatePresenterConfig({ scrollSpeed: parseFloat(newSpeedDown.toFixed(1)) });
+            // Permite velocidades ainda mais baixas (até 0.05x)
+            const newSpeedDown = Math.max(0.05, presenterConfig.scrollSpeed - 0.05);
+            updatePresenterConfig({ scrollSpeed: parseFloat(newSpeedDown.toFixed(2)) });
             toast({ 
               title: `🐌 Velocidade Diminuída (Apresentador)`,
-              description: `Velocidade: ${newSpeedDown.toFixed(1)}x`,
+              description: `Velocidade: ${newSpeedDown.toFixed(2)}x`,
               duration: 1500
             });
           }
@@ -486,7 +632,13 @@ const OperatorView = () => {
     setDragPosition({ x: info.point.x, y: info.point.y });
     
     // Verifica se draggedItem existe
-    if (!draggedItem) return;
+    if (!draggedItem) {
+      // Se não há draggedItem, garante que o indicador está desativado
+      const newIndicator = { show: false, index: -1, type: null, folderIndex: null };
+      dropIndicatorRef.current = newIndicator;
+      setDropIndicator(newIndicator);
+      return;
+    }
     
     // Calcula onde mostrar o indicador de drop
     // Usa getElementsFromPoint e filtra elementos que não são o item sendo arrastado
@@ -536,7 +688,9 @@ const OperatorView = () => {
         
         // Ignora se está arrastando sobre si mesmo
         if (draggedItem && draggedItem.type === 'folder' && draggedItem.folderIndex === targetFolderIndex) {
-          setDropIndicator({ show: false, index: -1, type: null, folderIndex: null });
+          const newIndicator = { show: false, index: -1, type: null, folderIndex: null };
+          dropIndicatorRef.current = newIndicator;
+          setDropIndicator(newIndicator);
           return;
         }
         
@@ -557,12 +711,14 @@ const OperatorView = () => {
             const showAbove = relativeY < folderRelativeY + (folderHeight / 2);
             const indicatorIndex = showAbove ? targetFolderIndex : targetFolderIndex + 1;
             
-            setDropIndicator({
+            const newIndicator = {
               show: true,
               index: indicatorIndex,
               type: 'folder',
               folderIndex: null
-            });
+            };
+            dropIndicatorRef.current = newIndicator;
+            setDropIndicator(newIndicator);
           }
         }
       } else if (draggedItem.type === 'item' && (itemEl || folderEl)) {
@@ -573,61 +729,271 @@ const OperatorView = () => {
           
           // Ignora se está arrastando sobre si mesmo
           if (draggedItem && draggedItem.type === 'item' && draggedItem.folderIndex === targetFolderIndex && draggedItem.itemIndex === targetItemIndex) {
-            setDropIndicator({ show: false, index: -1, type: null, folderIndex: null });
+            const newIndicator = { show: false, index: -1, type: null, folderIndex: null };
+            dropIndicatorRef.current = newIndicator;
+            setDropIndicator(newIndicator);
             return;
           }
           
-          // Calcula se o cursor está na metade superior ou inferior do item
-          const itemElement = document.querySelector(`[data-item-index="${targetItemIndex}"][data-folder-index="${targetFolderIndex}"]`);
+          // Encontra TODOS os itens na mesma pasta para calcular a posição correta
+          // Isso garante que encontramos o item correto mesmo se houver sobreposição visual
+          const allItemsInFolder = document.querySelectorAll(`[data-folder-index="${targetFolderIndex}"][data-item-index]`);
+          let closestItem = null;
+          let closestDistance = Infinity;
+          const cursorY = info.point.y;
+          
+          // Encontra o item mais próximo do cursor (verticalmente)
+          allItemsInFolder.forEach(item => {
+            const itemRect = item.getBoundingClientRect();
+            const itemCenterY = itemRect.top + itemRect.height / 2;
+            const distance = Math.abs(cursorY - itemCenterY);
+            
+            // Verifica se o cursor está dentro dos limites verticais do item
+            if (cursorY >= itemRect.top && cursorY <= itemRect.bottom) {
+              if (distance < closestDistance) {
+                closestDistance = distance;
+                closestItem = item;
+              }
+            }
+          });
+          
+          // Se encontrou um item próximo, usa ele; senão usa o itemEl original
+          const itemElement = closestItem || document.querySelector(`[data-item-index="${targetItemIndex}"][data-folder-index="${targetFolderIndex}"]`);
           
           if (itemElement) {
+            const actualTargetItemIndex = parseInt(itemElement.dataset.itemIndex);
             const itemRect = itemElement.getBoundingClientRect();
-            const cursorY = info.point.y;
             const itemCenterY = itemRect.top + itemRect.height / 2;
             
-            // Se o cursor está na metade superior, insere ANTES (index = targetItemIndex)
-            // Se o cursor está na metade inferior, insere DEPOIS (index = targetItemIndex + 1)
+            // Se o cursor está na metade superior, insere ANTES (index = actualTargetItemIndex)
+            // Se o cursor está na metade inferior, insere DEPOIS (index = actualTargetItemIndex + 1)
             const insertBefore = cursorY < itemCenterY;
-            const insertIndex = insertBefore ? targetItemIndex : targetItemIndex + 1;
+            const insertIndex = insertBefore ? actualTargetItemIndex : actualTargetItemIndex + 1;
             
-            setDropIndicator({
+            // Validação: garante que o índice está dentro dos limites válidos
+            const currentRundown = localRundownRef.current || rundown;
+            const targetFolder = currentRundown?.items?.[targetFolderIndex];
+            const maxIndex = targetFolder?.children?.length || 0;
+            const validInsertIndex = Math.max(0, Math.min(insertIndex, maxIndex));
+            
+            console.log('📍 Calculando insertIndex:', {
+              targetItemIndex,
+              actualTargetItemIndex,
+              insertIndex,
+              validInsertIndex,
+              maxIndex,
+              insertBefore,
+              cursorY,
+              itemCenterY
+            });
+            
+            const newIndicator = {
               show: true,
-              index: insertIndex,
+              index: validInsertIndex,
               type: 'item',
               folderIndex: targetFolderIndex
-            });
+            };
+            dropIndicatorRef.current = newIndicator;
+            setDropIndicator(newIndicator);
           }
         } else if (folderEl) {
           // Soltando dentro de uma pasta vazia ou no final
           const targetFolderIndex = parseInt(folderEl.dataset.folderIndex);
-          setDropIndicator({
+          const newIndicator = {
             show: true,
             index: -1,
             type: 'item',
             folderIndex: targetFolderIndex
-          });
+          };
+          dropIndicatorRef.current = newIndicator;
+          setDropIndicator(newIndicator);
         }
       }
     } else {
-      setDropIndicator({ show: false, index: -1, type: null, folderIndex: null });
+      const newIndicator = { show: false, index: -1, type: null, folderIndex: null };
+      dropIndicatorRef.current = newIndicator;
+      setDropIndicator(newIndicator);
     }
   };
 
   const handleDragEnd = (event, info) => {
-    console.log('🛑 handleDragEnd:', { hasDraggedItem: !!draggedItem, dropIndicatorShow: dropIndicator.show });
+    // Lê o valor mais recente do ref (síncrono, não sofre de stale state)
+    let finalDropIndicator = dropIndicatorRef.current;
+    
+    console.log('🛑 handleDragEnd:', { hasDraggedItem: !!draggedItem, dropIndicatorShow: finalDropIndicator.show, point: info.point });
+    
+    // Se o indicador não estiver mostrando, tenta detectar a posição final do mouse
+    if (draggedItem && !finalDropIndicator.show) {
+      console.log('🔍 Indicador não está mostrando, tentando detectar posição final...');
+      
+      // Tenta encontrar o elemento na posição final do mouse
+      const elementsAtPoint = document.elementsFromPoint(info.point.x, info.point.y);
+      
+      // Procura por elementos com data-item-index ou data-folder-index
+      const draggedElement = event.target.closest('[data-folder-index], [data-item-index]');
+      const draggedFolderIndex = draggedElement?.dataset?.folderIndex;
+      const draggedItemIndex = draggedElement?.dataset?.itemIndex;
+      
+      const targetElement = elementsAtPoint.find(el => {
+        if (el === draggedElement || el.contains(draggedElement)) return false;
+        
+        const folderEl = el.closest('[data-folder-index]');
+        const itemEl = el.closest('[data-item-index]');
+        
+        if (itemEl) {
+          const folderIndex = itemEl.dataset.folderIndex;
+          const itemIndex = itemEl.dataset.itemIndex;
+          if (draggedItem.type === 'item' && folderIndex === draggedFolderIndex && itemIndex === draggedItemIndex) {
+            return false;
+          }
+          return true;
+        }
+        
+        if (folderEl) {
+          const folderIndex = folderEl.dataset.folderIndex;
+          if (draggedItem.type === 'folder' && folderIndex === draggedFolderIndex) {
+            return false;
+          }
+          return true;
+        }
+        
+        return false;
+      });
+      
+      if (targetElement) {
+        console.log('✅ Elemento alvo encontrado na posição final');
+        const folderEl = targetElement.closest('[data-folder-index]');
+        const itemEl = targetElement.closest('[data-item-index]');
+        
+        if (draggedItem.type === 'item' && itemEl) {
+          const targetFolderIndex = parseInt(itemEl.dataset.folderIndex);
+          const targetItemIndex = parseInt(itemEl.dataset.itemIndex);
+          
+          // Usa a mesma lógica melhorada do handleDrag para encontrar o item correto
+          const allItemsInFolder = document.querySelectorAll(`[data-folder-index="${targetFolderIndex}"][data-item-index]`);
+          let closestItem = null;
+          let closestDistance = Infinity;
+          const cursorY = info.point.y;
+          
+          // Encontra o item mais próximo do cursor (verticalmente)
+          allItemsInFolder.forEach(item => {
+            const itemRect = item.getBoundingClientRect();
+            const itemCenterY = itemRect.top + itemRect.height / 2;
+            const distance = Math.abs(cursorY - itemCenterY);
+            
+            // Verifica se o cursor está dentro dos limites verticais do item
+            if (cursorY >= itemRect.top && cursorY <= itemRect.bottom) {
+              if (distance < closestDistance) {
+                closestDistance = distance;
+                closestItem = item;
+              }
+            }
+          });
+          
+          // Se encontrou um item próximo, usa ele; senão usa o itemEl original
+          const itemElement = closestItem || document.querySelector(`[data-item-index="${targetItemIndex}"][data-folder-index="${targetFolderIndex}"]`);
+          
+          if (itemElement) {
+            const actualTargetItemIndex = parseInt(itemElement.dataset.itemIndex);
+            const itemRect = itemElement.getBoundingClientRect();
+            const itemCenterY = itemRect.top + itemRect.height / 2;
+            const insertBefore = cursorY < itemCenterY;
+            const insertIndex = insertBefore ? actualTargetItemIndex : actualTargetItemIndex + 1;
+            
+            // Validação: garante que o índice está dentro dos limites válidos
+            const currentRundown = localRundownRef.current || rundown;
+            const targetFolder = currentRundown?.items?.[targetFolderIndex];
+            const maxIndex = targetFolder?.children?.length || 0;
+            const validInsertIndex = Math.max(0, Math.min(insertIndex, maxIndex));
+            
+            console.log('📍 handleDragEnd - Calculando insertIndex:', {
+              targetItemIndex,
+              actualTargetItemIndex,
+              insertIndex,
+              validInsertIndex,
+              maxIndex,
+              insertBefore
+            });
+            
+            finalDropIndicator = {
+              show: true,
+              index: validInsertIndex,
+              type: 'item',
+              folderIndex: targetFolderIndex
+            };
+            dropIndicatorRef.current = finalDropIndicator;
+          }
+        } else if (draggedItem.type === 'item' && folderEl) {
+          const targetFolderIndex = parseInt(folderEl.dataset.folderIndex);
+          const currentRundown = localRundownRef.current;
+          const targetFolder = currentRundown?.items[targetFolderIndex];
+          
+          if (targetFolder) {
+            finalDropIndicator = {
+              show: true,
+              index: targetFolder.children.length,
+              type: 'item',
+              folderIndex: targetFolderIndex
+            };
+            dropIndicatorRef.current = finalDropIndicator;
+            console.log('✅ Indicador de item atualizado:', finalDropIndicator);
+          }
+        } else if (draggedItem.type === 'folder' && folderEl) {
+          const targetFolderIndex = parseInt(folderEl.dataset.folderIndex);
+          const container = document.querySelector('.reorder-container');
+          
+          if (container) {
+            const containerRect = container.getBoundingClientRect();
+            const relativeY = info.point.y - containerRect.top;
+            const folderElement = document.querySelector(`[data-folder-index="${targetFolderIndex}"]`);
+            
+            if (folderElement) {
+              const folderRect = folderElement.getBoundingClientRect();
+              const folderRelativeY = folderRect.top - containerRect.top;
+              const folderHeight = folderRect.height;
+              const showAbove = relativeY < folderRelativeY + (folderHeight / 2);
+              const indicatorIndex = showAbove ? targetFolderIndex : targetFolderIndex + 1;
+              
+              finalDropIndicator = {
+                show: true,
+                index: indicatorIndex,
+                type: 'folder',
+                folderIndex: null
+              };
+              dropIndicatorRef.current = finalDropIndicator;
+              console.log('✅ Indicador de pasta atualizado:', finalDropIndicator);
+            }
+          }
+        }
+      } else {
+        console.log('⚠️ Nenhum elemento alvo encontrado na posição final');
+      }
+    }
     
     // Lógica de reordenação baseada na posição final
-    if (draggedItem && dropIndicator.show) {
+    // EXECUTA SE O DROP FOR VÁLIDO (finalDropIndicator.show === true)
+    if (draggedItem && finalDropIndicator.show) {
       const { type, data, folderIndex, itemIndex } = draggedItem;
       
       // Usa ref em vez de state direto para evitar conflitos com WebSocket
       const currentRundown = localRundownRef.current;
       
-      console.log('🎯 Processando drop:', { type, folderIndex, itemIndex, dropIndicator });
+      if (!currentRundown) {
+        console.error('❌ currentRundown é null no handleDragEnd');
+        return;
+      }
       
-      if (type === 'folder' && dropIndicator.type === 'folder') {
-        // Para pastas, dropIndicator.index é o índice onde inserir (pode ser targetFolderIndex ou targetFolderIndex + 1)
-        const insertIndex = dropIndicator.index;
+      console.log('🎯 Processando drop:', { 
+        type, 
+        folderIndex, 
+        itemIndex, 
+        dropIndicator: finalDropIndicator,
+        currentRundownItems: currentRundown.items?.length 
+      });
+      
+      if (type === 'folder' && finalDropIndicator.type === 'folder') {
+        // Para pastas, finalDropIndicator.index é o índice onde inserir (pode ser targetFolderIndex ou targetFolderIndex + 1)
+        const insertIndex = finalDropIndicator.index;
         
         // Reordenar pastas
         const newItems = [...currentRundown.items];
@@ -639,8 +1005,9 @@ const OperatorView = () => {
           adjustedInsertIndex = insertIndex - 1;
         }
         
-        // Garante que não está tentando inserir na mesma posição
-        if (adjustedInsertIndex !== folderIndex && adjustedInsertIndex >= 0 && adjustedInsertIndex <= newItems.length) {
+        // SEMPRE reorganiza se a posição for válida (remove a validação de mesma posição)
+        // Isso garante que pastas "sobrepostas" sejam reorganizadas corretamente
+        if (adjustedInsertIndex >= 0 && adjustedInsertIndex <= newItems.length) {
           newItems.splice(adjustedInsertIndex, 0, draggedFolder);
           
           // Atualização OTIMISTA imediata + sincronização
@@ -650,15 +1017,37 @@ const OperatorView = () => {
             syncFolderReorder(String(currentRundown.id), newItems);
           }
         }
-      } else if (type === 'item' && dropIndicator.type === 'item') {
-        const targetFolderIndex = dropIndicator.folderIndex;
-        // dropIndicator.index é o índice ONDE devemos INSERIR (já considera +1)
-        const insertIndex = dropIndicator.index;
+      } else if (type === 'item' && finalDropIndicator.type === 'item') {
+        const targetFolderIndex = finalDropIndicator.folderIndex;
+        // finalDropIndicator.index é o índice ONDE devemos INSERIR (já considera +1)
+        const insertIndex = finalDropIndicator.index;
         
         const newItems = [...currentRundown.items];
+        
+        // Validações de segurança
+        if (!newItems[folderIndex]) {
+          console.error('❌ sourceFolder não encontrado:', { folderIndex, itemsLength: newItems.length });
+          return;
+        }
+        
         const sourceFolder = newItems[folderIndex];
+        if (!sourceFolder.children || !Array.isArray(sourceFolder.children)) {
+          console.error('❌ sourceFolder.children inválido:', sourceFolder);
+          return;
+        }
+        
+        if (itemIndex < 0 || itemIndex >= sourceFolder.children.length) {
+          console.error('❌ itemIndex inválido:', { itemIndex, childrenLength: sourceFolder.children.length });
+          return;
+        }
+        
         const sourceChildren = [...sourceFolder.children];
         const draggedItemData = sourceChildren.splice(itemIndex, 1)[0];
+        
+        if (!draggedItemData) {
+          console.error('❌ draggedItemData é null');
+          return;
+        }
         
         if (folderIndex === targetFolderIndex) {
           // Mesmo dentro da pasta - reordenar
@@ -676,11 +1065,31 @@ const OperatorView = () => {
           // Se insertIndex <= itemIndex, o insertIndex permanece o mesmo
           // porque estamos inserindo antes ou na mesma posição (que será removida)
           
-          // Validações: deve haver mudança de posição e posição válida
-          const wouldChangePosition = adjustedInsertIndex !== itemIndex;
+          // Validação adicional: garante que o índice ajustado não seja maior que o tamanho da lista
+          // (que já foi reduzida em 1 após remover o item)
+          adjustedInsertIndex = Math.max(0, Math.min(adjustedInsertIndex, sourceChildren.length));
+          
+          // Validações: posição válida (sempre permite reordenação se a posição for válida)
           const isValidPosition = adjustedInsertIndex >= 0 && adjustedInsertIndex <= sourceChildren.length;
           
-          if (wouldChangePosition && isValidPosition) {
+          console.log('🔄 Reordenando dentro da mesma pasta:', {
+            itemIndex,
+            insertIndex,
+            adjustedInsertIndex,
+            sourceChildrenLength: sourceChildren.length,
+            isValidPosition
+          });
+          
+          // SEMPRE reorganiza se a posição for válida, mesmo que seja a mesma posição
+          // Isso garante que itens "sobrepostos" sejam reorganizados corretamente
+          if (isValidPosition) {
+            console.log('✅ Reordenando item dentro da mesma pasta:', {
+              itemIndex,
+              adjustedInsertIndex,
+              insertIndex,
+              sourceChildrenLength: sourceChildren.length
+            });
+            
             sourceChildren.splice(adjustedInsertIndex, 0, draggedItemData);
             newItems[folderIndex] = { ...sourceFolder, children: sourceChildren };
             
@@ -690,26 +1099,46 @@ const OperatorView = () => {
             if (currentRundown?.id) {
               syncItemReorder(String(currentRundown.id), folderIndex, newItems[folderIndex].children);
             }
+          } else {
+            console.error('❌ Posição inválida para reordenação:', {
+              adjustedInsertIndex,
+              sourceChildrenLength: sourceChildren.length
+            });
           }
         } else {
           // Entre pastas diferentes - mover
+          if (!newItems[targetFolderIndex]) {
+            console.error('❌ targetFolder não encontrado:', { targetFolderIndex, itemsLength: newItems.length });
+            return;
+          }
+          
           const targetFolder = newItems[targetFolderIndex];
           const targetChildren = [...(targetFolder.children || [])];
           const finalInsertIndex = insertIndex === -1 ? targetChildren.length : insertIndex;
           
+          // SEMPRE reorganiza se a posição for válida
           if (finalInsertIndex >= 0 && finalInsertIndex <= targetChildren.length) {
+            console.log('✅ Movendo item entre pastas:', {
+              fromFolder: folderIndex,
+              toFolder: targetFolderIndex,
+              finalInsertIndex,
+              targetChildrenLength: targetChildren.length
+            });
+            
             targetChildren.splice(finalInsertIndex, 0, draggedItemData);
             
             newItems[folderIndex] = { ...sourceFolder, children: sourceChildren };
             newItems[targetFolderIndex] = { ...targetFolder, children: targetChildren };
-            
+
             // Atualização OTIMISTA imediata + sincronização
             setRundown({ ...currentRundown, items: newItems });
-            
+
+            // Sincroniza a nova ordem de ambas as pastas
             if (currentRundown?.id) {
-              syncItemReorder(String(currentRundown.id), folderIndex, newItems[folderIndex].children);
-              syncItemReorder(String(currentRundown.id), targetFolderIndex, newItems[targetFolderIndex].children);
+              syncRundownUpdate(String(currentRundown.id), { items: newItems });
             }
+          } else {
+            console.error('❌ finalInsertIndex inválido:', { finalInsertIndex, targetChildrenLength: targetChildren.length });
           }
         }
       }
@@ -719,7 +1148,11 @@ const OperatorView = () => {
     setIsDragging(false);
     setDraggedItem(null);
     setDragOverIndex(-1);
-    setDropIndicator({ show: false, index: -1, type: null, folderIndex: null });
+    
+    // Reseta o ref e o state
+    const resetIndicator = { show: false, index: -1, type: null, folderIndex: null };
+    dropIndicatorRef.current = resetIndicator;
+    setDropIndicator(resetIndicator);
     
     // Libera lock com delay para evitar duplicação do WebSocket
     setTimeout(() => {
@@ -857,271 +1290,83 @@ const OperatorView = () => {
                 <span className="sm:inline">Nova Pasta</span>
               </Button>
             </div>
-            <div className="flex-1 overflow-y-auto reorder-container relative overflow-x-hidden" style={{ width: '100%' }}>
-              {/* Drop Indicator */}
-              {dropIndicator.show && dropIndicator.type === 'folder' && (
-                <motion.div
-                  className="absolute left-0 right-0 h-1 bg-primary rounded-full z-50 shadow-lg"
-                  style={{
-                    top: `${(dropIndicator.index * 100) + (dropIndicator.index * 8) + 8}px`, // Ajuste para padding e espaçamento
-                  }}
-                  initial={{ scaleX: 0, opacity: 0 }}
-                  animate={{ scaleX: 1, opacity: 1 }}
-                  exit={{ scaleX: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <div className="absolute -left-2 -right-2 h-3 bg-primary/20 rounded-full" />
-                  <div className="absolute -left-1 -right-1 h-2 bg-primary/40 rounded-full" />
-                </motion.div>
-              )}
-              
-              <div className="space-y-2 p-1 min-h-full">
+            <div 
+              className="flex-1 overflow-y-auto relative overflow-x-hidden" 
+              style={{ 
+                width: '100%',
+                WebkitOverflowScrolling: 'touch',
+                overscrollBehavior: 'contain',
+                touchAction: 'pan-y'
+              }}
+            >
+              <Reorder.Group axis="y" values={rundown.items} onReorder={handleFolderReorder} className="space-y-2 p-1 min-h-full">
                 {rundown.items.map((folder, fIndex) => (
-                <motion.div 
-                  key={folder.id}
-                  drag="y"
-                  dragElastic={0}
-                  dragMomentum={false}
-                  onDragStart={(e, info) => handleFolderDragStart(e, info, folder, fIndex)}
-                  onDrag={(e, info) => handleDrag(e, info)}
-                  onDragEnd={(e, info) => handleDragEnd(e, info)}
-                  className={cn(
-                    "bg-secondary/50 rounded-lg cursor-move",
-                    dragOverIndex === fIndex && "ring-2 ring-primary ring-offset-2 bg-primary/10",
-                    draggedItem?.data?.id === folder.id && "opacity-50 scale-95"
-                  )}
-                  style={{ width: '100%' }}
-                  data-folder-index={fIndex}
-                  data-folder-id={folder.id}
-                  whileHover={{ scale: 1.02 }}
-                  whileDrag={{ 
-                    scale: 1.05, 
-                    rotate: 2,
-                    boxShadow: "0 15px 35px rgba(0,0,0,0.3)",
-                    zIndex: 1000
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2 p-2 rounded-t-md">
-                    <div className="flex items-center gap-2">
-                      <GripVertical className="w-5 h-5 text-muted-foreground cursor-move" />
-                      <Folder className="w-5 h-5 text-primary" />
-                      <h4 className="font-bold text-foreground">{folder.title}</h4>
+                  <Reorder.Item key={folder.id} value={folder} className="bg-secondary/50 rounded-lg">
+                    <div className="flex items-center justify-between gap-2 p-2 rounded-t-md">
+                      <div className="flex items-center gap-2">
+                        <GripVertical className="w-5 h-5 text-muted-foreground cursor-grab" />
+                        <Folder className="w-5 h-5 text-primary" />
+                        <h4 className="font-bold text-foreground">{folder.title}</h4>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingFolder(folder)}><Edit className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => addItem(fIndex)}><Plus className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeFolder(fIndex)}><Trash2 className="w-4 h-4" /></Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingFolder(folder)}><Edit className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => addItem(fIndex)}><Plus className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeFolder(fIndex)}><Trash2 className="w-4 h-4" /></Button>
-                    </div>
-                  </div>
-                  
-                  <div className="border-t border-border p-1 space-y-1">
-                      {/* Indicador antes do primeiro item */}
-                      {dropIndicator.show && 
-                       dropIndicator.type === 'item' && 
-                       dropIndicator.folderIndex === fIndex && 
-                       dropIndicator.index === 0 && (
-                        <motion.div
-                          key="drop-indicator-start"
-                          className="w-full h-1 bg-primary rounded-full mb-1"
-                          initial={{ scaleX: 0, opacity: 0 }}
-                          animate={{ scaleX: 1, opacity: 1 }}
-                          exit={{ scaleX: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <div className="w-full h-3 bg-primary/20 rounded-full -mt-1" />
-                          <div className="w-full h-2 bg-primary/40 rounded-full -mt-2" />
-                        </motion.div>
-                      )}
+                    <Reorder.Group axis="y" values={folder.children || []} onReorder={(newOrder) => handleItemReorder(fIndex, newOrder)} className="border-t border-border p-1 space-y-1">
                       {(folder.children || []).map((item, iIndex) => {
-                        // Mostra indicador ANTES deste item se dropIndicator.index === iIndex
-                        // Mostra indicador DEPOIS deste item se dropIndicator.index === iIndex + 1
-                        const shouldShowIndicatorBefore = dropIndicator.show && 
-                          dropIndicator.type === 'item' && 
-                          dropIndicator.folderIndex === fIndex && 
-                          dropIndicator.index === iIndex;
-                        
-                        const shouldShowIndicatorAfter = dropIndicator.show && 
-                          dropIndicator.type === 'item' && 
-                          dropIndicator.folderIndex === fIndex && 
-                          dropIndicator.index === iIndex + 1;
-                        
-                      const isCurrent = currentItemIndex.folderIndex === fIndex && currentItemIndex.itemIndex === iIndex;
-                      
-                      const itemStartTime = calculateElapsedTimeForIndex(fIndex, iIndex, rundown.items);
-                      const itemElapsedTime = isCurrent && isRunning ? timeElapsed - itemStartTime : 0;
-                      const remainingTime = Math.max(0, item.duration - itemElapsedTime);
-                      const progress = isCurrent && item.duration > 0 ? Math.min((itemElapsedTime / item.duration) * 100, 100) : 0;
-
-                      let progressColor = 'bg-blue-500';
-                      if (remainingTime <= 30) progressColor = 'bg-yellow-500';
-                      if (remainingTime <= 10) progressColor = 'bg-red-500';
-
-                      return (
-                        <React.Fragment key={item.id}>
-                          {shouldShowIndicatorBefore && (
-                            <motion.div
-                              key={`drop-indicator-before-${item.id}`}
-                              className="w-full h-1 bg-primary rounded-full mb-1"
-                              initial={{ scaleX: 0, opacity: 0 }}
-                              animate={{ scaleX: 1, opacity: 1 }}
-                              exit={{ scaleX: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                            >
-                              <div className="w-full h-3 bg-primary/20 rounded-full -mt-1" />
-                              <div className="w-full h-2 bg-primary/40 rounded-full -mt-2" />
-                            </motion.div>
-                          )}
-                        <motion.div
-                          drag="y"
-                          dragElastic={0}
-                          dragMomentum={false}
-                          onDragStart={(e, info) => handleDragStart(e, info, item, fIndex, iIndex)}
-                          onDrag={(e, info) => handleDrag(e, info)}
-                          onDragEnd={(e, info) => handleDragEnd(e, info)}
-                          className={cn(
-                            "group relative flex items-center gap-2 sm:gap-4 p-3 rounded-md border-l-4 cursor-move",
-                            isCurrent ? 'bg-primary/20' : 'bg-card hover:bg-secondary',
-                            dragOverIndex === iIndex && "ring-2 ring-primary ring-offset-2 bg-primary/10",
-                            draggedItem?.data?.id === item.id && "opacity-50 scale-95"
-                          )}
-                          style={{ borderColor: item.color, width: '100%' }}
-                          data-folder-index={fIndex}
-                          data-item-index={iIndex}
-                          whileHover={{ scale: 1.01 }}
-                          whileDrag={{ 
-                            scale: 1.03, 
-                            rotate: 1,
-                            boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
-                            zIndex: 1000
-                          }}
-                        >
-                          <GripVertical className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground cursor-move flex-shrink-0" />
-                          <div className="w-6 h-6 sm:w-8 sm:h-8 text-center text-muted-foreground flex items-center justify-center">{getIcon(item)}</div>
-                          <div className="w-12 sm:w-20 text-center font-mono text-xs sm:text-sm text-muted-foreground">{formatTimeShort(item.duration)}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm sm:text-lg text-foreground truncate">{item.title}</p>
-                            <p className="text-xs sm:text-sm text-muted-foreground truncate">{item.description}</p>
-                            {item.reminder && <p className="text-xs text-amber-500 mt-1 truncate">Lembrete: {item.reminder}</p>}
-                          </div>
-                          <UrgencyIndicator urgency={item.urgency} />
-                          <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setCurrentItemIndex(fIndex, iIndex)} title="Definir como atual"><MousePointerClick className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setEditingScript(item)} title="Editar Script"><FileText className="w-3 h-3 sm:w-4 sm:h-4 text-green-500" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setEditingItem(item)} title="Editar Item"><Edit className="w-3 h-3 sm:w-4 sm:h-4" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 text-destructive" onClick={() => removeItem(fIndex, iIndex)} title="Remover"><Trash2 className="w-3 h-3 sm:w-4 sm:h-4" /></Button>
-                          </div>
-                          {isCurrent && (
-                            <motion.div 
-                              className={cn("absolute bottom-0 left-0 h-1", progressColor)}
-                              initial={{ width: '0%' }}
-                              animate={{ width: `${progress}%` }}
-                              transition={{ duration: 0.2, ease: 'linear' }}
-                            />
-                          )}
-                        </motion.div>
-                        {shouldShowIndicatorAfter && (
-                          <motion.div
-                            key={`drop-indicator-after-${item.id}`}
-                            className="w-full h-1 bg-primary rounded-full mb-1 mt-1"
-                            initial={{ scaleX: 0, opacity: 0 }}
-                            animate={{ scaleX: 1, opacity: 1 }}
-                            exit={{ scaleX: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                          >
-                            <div className="w-full h-3 bg-primary/20 rounded-full -mt-1" />
-                            <div className="w-full h-2 bg-primary/40 rounded-full -mt-2" />
-                          </motion.div>
-                        )}
-                        </React.Fragment>
-                      );
+                        const isCurrent = currentItemIndex.folderIndex === fIndex && currentItemIndex.itemIndex === iIndex;
+                        const itemStartTime = calculateElapsedTimeForIndex(fIndex, iIndex, rundown.items);
+                        const itemElapsedTime = isCurrent && isRunning ? timeElapsed - itemStartTime : 0;
+                        const remainingTime = Math.max(0, item.duration - itemElapsedTime);
+                        const progress = isCurrent && item.duration > 0 ? Math.min((itemElapsedTime / item.duration) * 100, 100) : 0;
+                        let progressColor = 'bg-blue-500';
+                        if (remainingTime <= 30) progressColor = 'bg-yellow-500';
+                        if (remainingTime <= 10) progressColor = 'bg-red-500';
+                        return (
+                          <Reorder.Item key={item.id} value={item} className={cn("group relative flex items-center gap-2 sm:gap-4 p-3 rounded-md border-l-4 overflow-hidden", isCurrent ? 'bg-primary/20' : 'bg-card hover:bg-secondary')} style={{ borderColor: item.color }}>
+                            <GripVertical className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground cursor-grab flex-shrink-0" />
+                            <div className="w-6 h-6 sm:w-8 sm:h-8 text-center text-muted-foreground flex items-center justify-center">{getIcon(item)}</div>
+                            <div className="w-12 sm:w-20 text-center font-mono text-xs sm:text-sm text-muted-foreground">{formatTimeShort(item.duration)}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-sm sm:text-lg text-foreground truncate">{item.title}</p>
+                              <p className="text-xs sm:text-sm text-muted-foreground truncate">{item.description}</p>
+                              {item.reminder && <p className="text-xs text-amber-500 mt-1 truncate">Lembrete: {item.reminder}</p>}
+                            </div>
+                            <UrgencyIndicator urgency={item.urgency} />
+                            <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setCurrentItemIndex(fIndex, iIndex)} title="Definir como atual"><MousePointerClick className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500" /></Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setEditingScript(item)} title="Editar Script"><FileText className="w-3 h-3 sm:w-4 sm:h-4 text-green-500" /></Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setEditingItem(item)} title="Editar Item"><Edit className="w-3 h-3 sm:w-4 sm:h-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 text-destructive" onClick={() => removeItem(fIndex, iIndex)} title="Remover"><Trash2 className="w-3 h-3 sm:w-4 sm:h-4" /></Button>
+                            </div>
+                            {isCurrent && (
+                              <motion.div 
+                                className={cn("absolute bottom-0 left-0 h-1", progressColor)}
+                                initial={{ width: '0%' }}
+                                animate={{ width: `${progress}%` }}
+                                transition={{ duration: 0.2, ease: 'linear' }}
+                              />
+                            )}
+                          </Reorder.Item>
+                        );
                       })}
-                      {/* Indicador no final da lista (quando dropIndicator.index é igual ao tamanho da lista) */}
-                      {dropIndicator.show && 
-                       dropIndicator.type === 'item' && 
-                       dropIndicator.folderIndex === fIndex && 
-                       dropIndicator.index === (folder.children || []).length && (
-                        <motion.div
-                          key="drop-indicator-end"
-                          className="w-full h-1 bg-primary rounded-full mb-1 mt-1"
-                          initial={{ scaleX: 0, opacity: 0 }}
-                          animate={{ scaleX: 1, opacity: 1 }}
-                          exit={{ scaleX: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <div className="w-full h-3 bg-primary/20 rounded-full -mt-1" />
-                          <div className="w-full h-2 bg-primary/40 rounded-full -mt-2" />
-                        </motion.div>
-                      )}
-                      {dropIndicator.show && dropIndicator.type === 'item' && dropIndicator.folderIndex === fIndex && dropIndicator.index === -1 && (
-                        <motion.div
-                          className="w-full h-1 bg-primary rounded-full mb-1"
-                          initial={{ scaleX: 0, opacity: 0 }}
-                          animate={{ scaleX: 1, opacity: 1 }}
-                          exit={{ scaleX: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <div className="w-full h-3 bg-primary/20 rounded-full -mt-1" />
-                          <div className="w-full h-2 bg-primary/40 rounded-full -mt-2" />
-                        </motion.div>
-                      )}
-                      {(!folder.children || folder.children.length === 0) && (
-                        <motion.div 
-                          className="text-center text-muted-foreground p-4 text-sm"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                        >
+                      {(folder.children || []).length === 0 && (
+                        <div className="text-center text-muted-foreground p-4 text-sm">
                           Esta pasta está vazia. Adicione um evento.
-                        </motion.div>
+                        </div>
                       )}
-                    </div>
-                </motion.div>
+                    </Reorder.Group>
+                  </Reorder.Item>
                 ))}
-                </div>
+              </Reorder.Group>
             </div>
           </div>
         </main>
       </div>
       
-      {/* Elemento flutuante durante drag - versão completa */}
-        {isDragging && draggedItem && (
-            <motion.div
-              className="fixed pointer-events-none z-[9999]"
-              style={{
-                left: dragPosition.x - dragOffset.x,
-                top: dragPosition.y - dragOffset.y,
-              }}
-            >
-          {draggedItem?.type === 'folder' ? (
-            // Pasta completa sendo arrastada
-            <div className="bg-secondary/50 rounded-lg shadow-2xl border-2 border-primary/50" style={{ width: '300px' }}>
-              <div className="flex items-center justify-between gap-2 p-2 rounded-t-md">
-                <div className="flex items-center gap-2">
-                  <GripVertical className="w-5 h-5 text-muted-foreground cursor-move" />
-                  <Folder className="w-5 h-5 text-primary" />
-                  <h4 className="font-bold text-foreground">{draggedItem?.data?.title || ''}</h4>
-                </div>
-              </div>
-              <div className="border-t border-border p-1">
-                <div className="text-center text-muted-foreground p-4 text-sm">
-                  {draggedItem?.data?.children?.length || 0} itens
-                </div>
-              </div>
-            </div>
-          ) : (
-            // Item completo sendo arrastado
-            <div className="group relative flex items-center gap-2 sm:gap-4 p-3 rounded-md border-l-4 bg-card shadow-2xl border-2 border-primary/50" style={{ width: '400px', borderColor: draggedItem?.data?.color }}>
-              <GripVertical className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground cursor-move flex-shrink-0" />
-              <div className="w-6 h-6 sm:w-8 sm:h-8 text-center text-muted-foreground flex items-center justify-center">{getIcon(draggedItem?.data)}</div>
-              <div className="w-12 sm:w-20 text-center font-mono text-xs sm:text-sm text-muted-foreground">{formatTimeShort(draggedItem?.data?.duration || 0)}</div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm sm:text-lg text-foreground truncate">{draggedItem?.data?.title || ''}</p>
-                <p className="text-xs sm:text-sm text-muted-foreground truncate">{draggedItem?.data?.description || ''}</p>
-                {draggedItem?.data?.reminder && <p className="text-xs text-amber-500 mt-1 truncate">Lembrete: {draggedItem?.data?.reminder}</p>}
-              </div>
-            </div>
-          )}
-        </motion.div>
-      )}
+      {/* DnD visual flutuante removido; Reorder lida com o feedback de arraste */}
       {editingItem && (
         <EditItemDialog
           item={editingItem}
@@ -1148,6 +1393,7 @@ const OperatorView = () => {
       <PresenterConfigDialog
         open={showPresenterConfigDialog}
         onClose={() => setShowPresenterConfigDialog(false)}
+        currentItem={rundown?.items[currentItemIndex.folderIndex]?.children[currentItemIndex.itemIndex]}
       />
     </>
   );

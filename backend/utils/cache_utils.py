@@ -17,11 +17,11 @@ try:
     # Testar conexão
     redis_client.ping()
     REDIS_AVAILABLE = True
-    print("✅ Redis conectado e disponível")
+    print("OK: Redis conectado e disponivel")
 except:
     redis_client = None
     REDIS_AVAILABLE = False
-    print("⚠️  Redis não disponível - cache desabilitado")
+    print("AVISO: Redis nao disponivel - cache desabilitado")
 
 
 def cache_key(prefix, *args, **kwargs):
@@ -111,11 +111,11 @@ def cached(ttl=300, key_prefix='cache'):
             # Tentar obter do cache
             cached_value = get_cache(key)
             if cached_value is not None:
-                print(f"🚀 Cache HIT: {key}")
+                print(f"Cache HIT: {key}")
                 return cached_value
             
             # Se não está no cache, executar função
-            print(f"💾 Cache MISS: {key}")
+            print(f"Cache MISS: {key}")
             result = func(*args, **kwargs)
             
             # Salvar no cache
@@ -133,21 +133,21 @@ def invalidate_rundown_cache(rundown_id):
     """Invalida cache de um rundown específico"""
     pattern = f"*rundown*{rundown_id}*"
     count = delete_cache_pattern(pattern)
-    print(f"🗑️  Invalidados {count} cache(s) do rundown {rundown_id}")
+    print(f"Invalidados {count} cache(s) do rundown {rundown_id}")
 
 
 def invalidate_user_cache(user_id):
     """Invalida cache de um usuário específico"""
     pattern = f"*user*{user_id}*"
     count = delete_cache_pattern(pattern)
-    print(f"🗑️  Invalidados {count} cache(s) do usuário {user_id}")
+    print(f"Invalidados {count} cache(s) do usuario {user_id}")
 
 
 def invalidate_company_cache(company_id):
     """Invalida cache de uma empresa"""
     pattern = f"*company*{company_id}*"
     count = delete_cache_pattern(pattern)
-    print(f"🗑️  Invalidados {count} cache(s) da empresa {company_id}")
+    print(f"Invalidados {count} cache(s) da empresa {company_id}")
 
 
 def get_cache_stats():

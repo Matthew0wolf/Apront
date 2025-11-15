@@ -110,6 +110,7 @@ def import_template(template_id):
         return jsonify({'error': 'Template não encontrado'}), 404
 
     # Cria o Rundown baseado no template
+    # CRÍTICO: Sempre associar à empresa do usuário
     rundown = Rundown(
         name=t.name,
         type=t.category,
@@ -117,18 +118,28 @@ def import_template(template_id):
         last_modified=datetime.utcnow().strftime('%Y-%m-%d'),
         status='Novo',
         duration=t.duration or '0',
-        team_members=1
+        team_members=1,
+        company_id=g.current_user.company_id  # CRÍTICO: Isolamento por empresa
     )
     db.session.add(rundown)
     db.session.flush()
 
-    # Vincula o rundown ao usuário logado (criador/owner)
+    # Vincula o rundown a todos os membros da empresa (para que todos vejam)
     try:
-        creator_id = g.current_user.id
-        db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
-    except Exception:
-        # Se por algum motivo g.current_user não estiver disponível, segue sem o vínculo
-        pass
+        company_users = User.query.filter_by(company_id=g.current_user.company_id).all()
+        for company_user in company_users:
+            # Verifica se já existe vínculo
+            existing = RundownMember.query.filter_by(rundown_id=rundown.id, user_id=company_user.id).first()
+            if not existing:
+                role = 'owner' if company_user.id == g.current_user.id else 'member'
+                db.session.add(RundownMember(rundown_id=rundown.id, user_id=company_user.id, role=role))
+    except Exception as e:
+        # Se der erro, pelo menos vincula ao criador
+        try:
+            creator_id = g.current_user.id
+            db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
+        except Exception:
+            pass
 
     # Cria pastas e itens
     try:

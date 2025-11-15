@@ -133,11 +133,13 @@ export const SyncProvider = ({ children }) => {
 
     // Envia via WebSocket para outros clientes
     if (websocketManager.isConnected) {
-      websocketManager.socket.emit('rundown_updated', {
+      const payload = {
         rundown_id: rundownId,
         changes: changes
-      });
-      console.log('📡 Mudanças de rundown enviadas via WebSocket para outros clientes');
+      };
+      console.log('📡 Enviando via WebSocket:', payload);
+      websocketManager.socket.emit('rundown_updated', payload);
+      console.log('✅ Mudanças de rundown enviadas via WebSocket para outros clientes');
     } else {
       console.warn('⚠️ WebSocket não conectado. Mudanças não serão sincronizadas com outros clientes.');
     }

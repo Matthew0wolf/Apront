@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
-from models import db, User, Company, UserRole, Invite, VerificationToken, TeamMember
+from models import db, User, Company, UserRole, Invite, VerificationToken, TeamMember, Plan
 from email_utils import send_verification_token_email
 from rate_limiter import rate_limit
 from security_logger import log_login_success, log_login_failure, log_security_event
@@ -8,8 +8,10 @@ import jwt
 import datetime
 import random
 import string
+import os
 
-SECRET_KEY = 'sua_chave_super_secreta'  # Troque por uma chave segura em produção
+# Usa variável de ambiente ou fallback (apenas para desenvolvimento)
+SECRET_KEY = os.getenv('JWT_SECRET_KEY') or os.getenv('SECRET_KEY') or 'sua_chave_super_secreta'
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -36,13 +38,19 @@ def accept_invite():
     if User.query.filter_by(email=invite.email).first():
         return jsonify({'error': 'Usuário já cadastrado com este e-mail'}), 400
     
+    # Define permissões baseadas no role
+    can_operate = invite.role == UserRole.operator or invite.role == UserRole.admin
+    can_present = invite.role == UserRole.presenter or invite.role == UserRole.admin
+    
     user = User(
         name=name,
         email=invite.email,
         password_hash=generate_password_hash(password),
         role=invite.role,
         company_id=invite.company_id,
-        joined_at=datetime.datetime.utcnow().isoformat()
+        joined_at=datetime.datetime.utcnow().isoformat(),
+        can_operate=can_operate,
+        can_present=can_present
     )
     db.session.add(user)
     db.session.flush()  # Para obter o ID do usuário
@@ -107,75 +115,123 @@ def register():
             'email': email
         })
     else:
-        # Se falhar o envio, retorna o token para debug
+        # Em produção, não retorna o token - apenas informa o erro
         return jsonify({
-            'message': 'Erro ao enviar email. Use o token abaixo para continuar:',
-            'token': verification_token,
-            'email': email,
-            'debug': True
-        })
+            'error': 'Erro ao enviar email de verificação. Verifique as configurações SMTP do servidor.',
+            'message': 'Por favor, entre em contato com o administrador do sistema.'
+        }), 500
 
 # Verificar token e completar cadastro
 @auth_bp.route('/verify-token', methods=['POST'])
 def verify_token():
-    data = request.get_json()
-    email = data.get('email')
-    token = data.get('token')
-    name = data.get('name')
-    password = data.get('password')
-    company_name = data.get('company')
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Dados não fornecidos'}), 400
+        
+        email = data.get('email')
+        token = data.get('token')
+        name = data.get('name')
+        password = data.get('password')
+        company_name = data.get('company')
+        
+        if not all([email, token, name, password, company_name]):
+            return jsonify({'error': 'Dados obrigatórios faltando'}), 400
+        
+        # Verifica token
+        token_record = VerificationToken.query.filter_by(
+            email=email, 
+            token=token
+        ).first()
+        
+        if not token_record:
+            return jsonify({'error': 'Token inválido ou não encontrado'}), 400
+        
+        if token_record.used:
+            return jsonify({'error': 'Token já foi utilizado. Faça um novo cadastro.'}), 400
+        
+        # Verifica se token não expirou
+        try:
+            expires_at = datetime.datetime.fromisoformat(token_record.expires_at)
+            if datetime.datetime.utcnow() > expires_at:
+                return jsonify({'error': 'Token expirado. Faça um novo cadastro.'}), 400
+        except (ValueError, AttributeError) as e:
+            # Se houver erro ao parsear data, loga mas permite continuar (fallback)
+            print(f"AVISO: Erro ao verificar expiração do token: {e}")
+        
+        # Verifica se email já está cadastrado
+        if User.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email já cadastrado. Faça login ou use outro email.'}), 400
+        
+        # Cria empresa PRIMEIRO (antes de marcar token como usado)
+        # Associa ao plano Starter por padrão
+        starter_plan = Plan.query.filter_by(name='Starter').first()
+        if not starter_plan:
+            # Se não houver planos, cria um plano básico
+            starter_plan = Plan(
+                name='Starter',
+                description='Plano básico',
+                price=0.0,
+                max_members=10,
+                max_rundowns=50,
+                max_storage_gb=5,
+                features='[]',
+                billing_cycle='monthly',
+                is_active=True,
+                created_at=datetime.datetime.utcnow().isoformat(),
+                updated_at=datetime.datetime.utcnow().isoformat()
+            )
+            db.session.add(starter_plan)
+            db.session.flush()
+        
+        company = Company(
+            name=company_name,
+            plan_id=starter_plan.id,
+            created_at=datetime.datetime.utcnow().isoformat()
+        )
+        db.session.add(company)
+        db.session.flush()  # Para obter o ID da empresa
+        
+        # Cria usuário admin (admin tem todas as permissões)
+        user = User(
+            name=name,
+            email=email,
+            password_hash=generate_password_hash(password),
+            role=UserRole.admin,
+            company_id=company.id,
+            joined_at=datetime.datetime.utcnow().isoformat(),
+            can_operate=True,  # Admin tem todas as permissões
+            can_present=True   # Admin tem todas as permissões
+        )
+        db.session.add(user)
+        db.session.flush()  # Para obter o ID do usuário
+        
+        # Cria registro na tabela team_members para o admin
+        team_member = TeamMember(
+            name=name,
+            email=email,
+            role=UserRole.admin.value,
+            status='active',
+            joined_at=datetime.datetime.utcnow().isoformat(),
+            last_active='Agora',
+            avatar=name[0:2].upper()  # Iniciais do nome
+        )
+        db.session.add(team_member)
+        
+        # Marca token como usado APENAS se tudo foi criado com sucesso
+        token_record.used = True
+        
+        # Commit final - se der erro aqui, nada é salvo (incluindo marcação do token)
+        db.session.commit()
+        
+        return jsonify({'message': 'Usuário e empresa criados com sucesso'})
     
-    if not all([email, token, name, password, company_name]):
-        return jsonify({'error': 'Dados obrigatórios faltando'}), 400
-    
-    # Verifica token
-    token_record = VerificationToken.query.filter_by(
-        email=email, 
-        token=token, 
-        used=False
-    ).first()
-    
-    if not token_record:
-        return jsonify({'error': 'Token inválido'}), 400
-    
-    # Verifica se token não expirou
-    if datetime.datetime.utcnow() > datetime.datetime.fromisoformat(token_record.expires_at):
-        return jsonify({'error': 'Token expirado'}), 400
-    
-    # Marca token como usado
-    token_record.used = True
-    
-    # Cria empresa
-    company = Company(name=company_name, created_at=datetime.datetime.utcnow().isoformat())
-    db.session.add(company)
-    db.session.commit()
-    
-    # Cria usuário admin
-    user = User(
-        name=name,
-        email=email,
-        password_hash=generate_password_hash(password),
-        role=UserRole.admin,
-        company_id=company.id,
-        joined_at=datetime.datetime.utcnow().isoformat()
-    )
-    db.session.add(user)
-    db.session.flush()  # Para obter o ID do usuário
-    
-    # Cria registro na tabela team_members para o admin
-    team_member = TeamMember(
-        name=name,
-        email=email,
-        role=UserRole.admin.value,
-        status='active',
-        joined_at=datetime.datetime.utcnow().isoformat(),
-        last_active='Agora',
-        avatar=name[0:2].upper()  # Iniciais do nome
-    )
-    db.session.add(team_member)
-    db.session.commit()
-    
-    return jsonify({'message': 'Usuário e empresa criados com sucesso'})
+    except Exception as e:
+        db.session.rollback()
+        print(f"ERRO ao verificar token: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Erro interno do servidor: {str(e)}'}), 500
 
 # Login
 @auth_bp.route('/login', methods=['POST'])

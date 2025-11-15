@@ -10,6 +10,10 @@ sys.path.insert(0, 'utils')
 from cors_config import enable_cors
 from websocket_server import socketio
 import os
+from dotenv import load_dotenv
+
+# Carregar variáveis de ambiente do arquivo .env (sobrescreve variáveis do sistema)
+load_dotenv(override=True)
 
 from routes.team import team_bp
 from routes.rundown import rundown_bp
@@ -30,14 +34,13 @@ app = Flask(__name__)
 
 # Configuração de Banco de Dados
 # Tenta usar PostgreSQL (via variável de ambiente), senão usa SQLite
+# Em produção (Railway/VPS): configure DATABASE_URL nas variáveis de ambiente
+# Em desenvolvimento local: deixe DATABASE_URL vazio para usar SQLite
 DATABASE_URL = os.getenv('DATABASE_URL')
-
-# FORÇAR SQLite para desenvolvimento local (comentar linha abaixo para usar PostgreSQL)
-DATABASE_URL = None  # <<< DESCOMENTE PARA USAR POSTGRESQL
 
 if DATABASE_URL:
     # PostgreSQL configurado (produção ou Docker)
-    print(f"🐘 Usando PostgreSQL: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'configurado'}")
+    print(f"Usando PostgreSQL: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'configurado'}")
     app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_size': 10,
@@ -46,7 +49,7 @@ if DATABASE_URL:
     }
 else:
     # SQLite para desenvolvimento local
-    print("💾 Usando SQLite (desenvolvimento local)")
+    print("Usando SQLite (desenvolvimento local)")
     sqlite_path = os.path.join(os.path.dirname(__file__), 'rundowns.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{sqlite_path}'
 
@@ -76,9 +79,9 @@ from security_logger import init_security_logging
 try:
     init_rate_limiting(app)
     init_security_logging(app)
-    print("✅ Segurança e rate limiting ativados")
+    print("OK: Seguranca e rate limiting ativados")
 except Exception as e:
-    print(f"⚠️  Erro ao inicializar segurança: {e}")
+    print(f"ERRO: Erro ao inicializar seguranca: {e}")
 
 
 
@@ -100,17 +103,87 @@ app.register_blueprint(notifications_bp)
 
 
 
+# Rotas públicas que não precisam verificar pagamento
+PUBLIC_ROUTES = [
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/verify-token',
+    '/api/auth/accept-invite',
+    '/api/auth/verify',
+    '/',
+]
+
+# Verificar pagamento antes de todas as rotas protegidas
+@app.before_request
+def check_payment():
+    # Ignora rotas públicas
+    if request.path in PUBLIC_ROUTES or request.path.startswith('/api/auth/'):
+        return None
+    
+    # Ignora OPTIONS (preflight CORS)
+    if request.method == 'OPTIONS':
+        return None
+    
+    # Verifica se tem token (rota protegida)
+    if 'Authorization' in request.headers:
+        try:
+            from auth_utils import jwt_required, SECRET_KEY
+            import jwt
+            from models import User, Company
+            
+            auth_header = request.headers['Authorization']
+            token = auth_header.split(' ')[1] if ' ' in auth_header else None
+            
+            if token:
+                # Decodifica token
+                payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+                user_id = payload.get('user_id')
+                user = User.query.get(user_id)
+                
+                if user and user.company_id:
+                    company = Company.query.get(user.company_id)
+                    if company and not company.payment_verified:
+                        # Bloqueia acesso se pagamento não verificado
+                        response = jsonify({
+                            'error': 'Acesso bloqueado',
+                            'message': 'Pagamento não verificado. Entre em contato com o administrador para liberar o acesso.',
+                            'payment_required': True
+                        })
+                        # Adiciona headers CORS mesmo em erro
+                        response.headers.add('Access-Control-Allow-Origin', '*')
+                        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+                        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+                        return response, 403
+        except Exception:
+            # Se der erro na verificação, deixa passar (será tratado pelo jwt_required)
+            pass
+    
+    return None
+
 # Responder preflight CORS globalmente para evitar bloqueio por autenticação em rotas protegidas
 @app.before_request
 def handle_cors_preflight():
     if request.method == 'OPTIONS':
-        # Flask-CORS adicionará os headers necessários no after_request
-        return ('', 200)
+        response = jsonify({})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+        response.headers.add('Access-Control-Max-Age', '600')
+        return response, 200
 
-# Headers de segurança
+# Headers de segurança e CORS
 @app.after_request
 def add_security_headers(response):
-    """Adiciona headers de segurança HTTP"""
+    """Adiciona headers de segurança HTTP e CORS"""
+    # CORS headers (garantir que sempre estejam presentes)
+    if 'Access-Control-Allow-Origin' not in response.headers:
+        response.headers['Access-Control-Allow-Origin'] = '*'
+    if 'Access-Control-Allow-Methods' not in response.headers:
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+    if 'Access-Control-Allow-Headers' not in response.headers:
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    
+    # Headers de segurança HTTP
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -130,7 +203,7 @@ if __name__ == '__main__':
         db.create_all()
     # Usa socketio.run() em vez de app.run() para ativar o servidor WebSocket
     # host='0.0.0.0' permite acesso de outros IPs da rede
-    # Porta configurável via variável de ambiente (útil para Replit e outros serviços)
+    # Porta configurável via variável de ambiente
     port = int(os.getenv('PORT', 5001))
     debug_mode = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
     socketio.run(app, debug=debug_mode, host='0.0.0.0', port=port)

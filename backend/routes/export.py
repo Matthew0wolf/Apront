@@ -20,7 +20,10 @@ def export_rundown(rundown_id):
     """Exporta um rundown completo em JSON"""
     try:
         current_user = g.current_user
-        rundown = Rundown.query.get_or_404(rundown_id)
+        # CRÍTICO: Verificar se rundown pertence à mesma empresa
+        rundown = Rundown.query.filter_by(id=rundown_id, company_id=current_user.company_id).first()
+        if not rundown:
+            return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
         
         # Estruturar dados para exportação
         export_data = {
@@ -117,6 +120,7 @@ def import_rundown():
         rundown_data = import_data['rundown']
         
         # Criar novo rundown
+        # CRÍTICO: Sempre associar à empresa do usuário
         new_rundown = Rundown(
             name=f"{rundown_data['name']} (Importado)",
             type=rundown_data.get('type', 'Evento'),
@@ -124,7 +128,8 @@ def import_rundown():
             last_modified=datetime.now().isoformat(),
             status='Novo',
             duration=rundown_data.get('duration', '0'),
-            team_members=1
+            team_members=1,
+            company_id=current_user.company_id  # CRÍTICO: Isolamento por empresa
         )
         
         db.session.add(new_rundown)
@@ -161,6 +166,10 @@ def import_rundown():
                 )
                 db.session.add(new_item)
         
+        # Adicionar o usuário como membro/owner do rundown importado
+        from models import RundownMember
+        db.session.add(RundownMember(rundown_id=new_rundown.id, user_id=current_user.id, role='owner'))
+        
         db.session.commit()
         
         return jsonify({
@@ -172,7 +181,10 @@ def import_rundown():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        print(f"[ERRO] Erro ao importar rundown: {e}")
+        traceback.print_exc()
+        return jsonify({'error': f'Erro ao importar rundown: {str(e)}'}), 500
 
 
 @export_bp.route('/rundown/<int:rundown_id>/duplicate', methods=['POST'])
@@ -181,7 +193,10 @@ def duplicate_rundown(rundown_id):
     """Duplica um rundown existente"""
     try:
         current_user = g.current_user
-        original = Rundown.query.get_or_404(rundown_id)
+        # CRÍTICO: Verificar se rundown pertence à mesma empresa
+        original = Rundown.query.filter_by(id=rundown_id, company_id=current_user.company_id).first()
+        if not original:
+            return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
         
         # Criar cópia do rundown
         duplicate = Rundown(
@@ -191,7 +206,8 @@ def duplicate_rundown(rundown_id):
             last_modified=datetime.now().isoformat(),
             status='Novo',
             duration=original.duration,
-            team_members=1
+            team_members=1,
+            company_id=current_user.company_id  # CRÍTICO: Isolamento por empresa
         )
         
         db.session.add(duplicate)

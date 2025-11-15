@@ -64,19 +64,16 @@ npm run dev
 - O backend usa SQLite por padrão (desenvolvimento)
 - Para usar PostgreSQL, configure a variável de ambiente `DATABASE_URL` em `backend/app.py`
 
-## 🌐 Deploy no Replit
+## 🚀 Iniciar Backend pelo main.py
 
-Para fazer deploy no Replit, consulte o guia completo:
+Para iniciar apenas o backend usando o script principal:
 
-📖 **[GUIA_DEPLOY_REPLIT.md](GUIA_DEPLOY_REPLIT.md)** - Guia completo passo a passo
+```bash
+python main.py
+```
 
-**Arquivos já configurados para Replit:**
-- `.replit` - Configuração do Replit
-- `replit.nix` - Dependências do sistema
-- `main.py` - Script para iniciar backend e frontend
-
-**Resumo rápido:**
-1. Importe o projeto no Replit
-2. Configure as Secrets (variáveis de ambiente)
-3. Clique em "Run" ou execute `python main.py`
+O script irá:
+- Verificar se a pasta `backend` existe
+- Instalar dependências automaticamente se necessário
+- Iniciar o servidor Flask na porta 5001 (ou a porta definida na variável `PORT`)
 

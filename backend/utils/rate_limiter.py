@@ -38,7 +38,13 @@ def check_rate_limit(identifier, limit_type='default'):
     """
     if not REDIS_AVAILABLE:
         # Se Redis não disponível, permitir (não bloquear)
-        return True, {'remaining': 999}
+        limit_config = RATE_LIMITS.get(limit_type, RATE_LIMITS['default'])
+        max_requests = limit_config['requests']
+        return True, {
+            'remaining': 999,
+            'limit': max_requests,
+            'exceeded': False
+        }
     
     limit_config = RATE_LIMITS.get(limit_type, RATE_LIMITS['default'])
     max_requests = limit_config['requests']
@@ -78,7 +84,14 @@ def check_rate_limit(identifier, limit_type='default'):
     except Exception as e:
         print(f"Erro no rate limiting: {e}")
         # Em caso de erro, permitir (fail-safe)
-        return True, {'error': str(e)}
+        limit_config = RATE_LIMITS.get(limit_type, RATE_LIMITS['default'])
+        max_requests = limit_config['requests']
+        return True, {
+            'error': str(e),
+            'remaining': 999,
+            'limit': max_requests,
+            'exceeded': False
+        }
 
 
 def rate_limit(limit_type='default', key_func=None):
@@ -130,9 +143,9 @@ def rate_limit(limit_type='default', key_func=None):
             # Adicionar headers informativos
             response = func(*args, **kwargs)
             
-            # Se é uma Response do Flask, adicionar headers
-            if hasattr(response, 'headers'):
-                response.headers['X-RateLimit-Limit'] = str(info['limit'])
+            # Se é uma Response do Flask, adicionar headers (se disponíveis)
+            if hasattr(response, 'headers') and 'limit' in info:
+                response.headers['X-RateLimit-Limit'] = str(info.get('limit', 0))
                 response.headers['X-RateLimit-Remaining'] = str(info.get('remaining', 0))
             
             return response

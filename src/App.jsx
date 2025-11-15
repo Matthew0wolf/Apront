@@ -125,9 +125,7 @@ function App() {
                     </RoleGuard>
                   } />
                   <Route path="/settings" element={
-                    <RoleGuard allowedRoles={['admin']}>
-                      <SettingsView />
-                    </RoleGuard>
+                    <SettingsView />
                   } />
                   <Route path="/templates" element={
                     <RoleGuard allowedRoles={['admin', 'operator']}>
@@ -135,7 +133,7 @@ function App() {
                     </RoleGuard>
                   } />
                   <Route path="/team" element={
-                    <RoleGuard allowedRoles={['admin']}>
+                    <RoleGuard allowedRoles={['admin', 'operator', 'presenter']}>
                       <TeamView />
                     </RoleGuard>
                   } />

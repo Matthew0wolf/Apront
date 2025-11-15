@@ -45,68 +45,82 @@ def get_team():
 @team_bp.route('/<int:member_id>', methods=['PATCH'])
 @jwt_required(allowed_roles=['admin'])
 def update_team_member_permissions(member_id):
-    data = request.get_json()
-    
-    # Impede que admin altere seu próprio role
-    if member_id == g.current_user.id:
-        return jsonify({'error': 'Não é possível alterar suas próprias permissões'}), 403
-    
-    # Busca o usuário na mesma empresa
-    company_id = g.current_user.company_id
-    
-    if not company_id:
-        return jsonify({'error': 'Não é possível atualizar usuários sem empresa'}), 403
-    
-    user = User.query.filter_by(id=member_id, company_id=company_id).first()
-    
-    if not user:
-        return jsonify({'error': 'Membro não encontrado'}), 404
-    
-    # Atualiza permissões modulares
-    if 'can_operate' in data:
-        user.can_operate = bool(data['can_operate'])
-    
-    if 'can_present' in data:
-        user.can_present = bool(data['can_present'])
-    
-    # Atualiza role se fornecido (mas não permite alterar para admin)
-    if 'role' in data:
-        new_role = data['role']
-        if new_role not in ['operator', 'presenter']:
-            return jsonify({'error': 'Role inválida. Apenas operator e presenter são permitidos'}), 400
-        
-        from models import UserRole
-        user.role = UserRole(new_role)
-    
-    db.session.commit()
-    
-    # Emite evento WebSocket para notificar outros clientes sobre a mudança
     try:
-        from websocket_server import socketio
-        socketio.emit('permissions_updated', {
-            'user_id': user.id,
-            'permissions': {
+        data = request.get_json()
+        
+        # Debug: verificar usuário atual
+        current_user = g.current_user
+        print(f"[DEBUG] Usuário atual: ID={current_user.id}, Role={current_user.role.value if hasattr(current_user.role, 'value') else current_user.role}, Company={current_user.company_id}")
+        
+        # Permite que admin altere suas próprias permissões (can_operate, can_present)
+        # mas não permite alterar o próprio role para não-admin
+        is_self = member_id == current_user.id
+        
+        # Busca o usuário na mesma empresa
+        company_id = current_user.company_id
+        
+        if not company_id:
+            print(f"[DEBUG] Usuário {current_user.id} não tem company_id")
+            return jsonify({'error': 'Não é possível atualizar usuários sem empresa'}), 403
+        
+        user = User.query.filter_by(id=member_id, company_id=company_id).first()
+        
+        if not user:
+            return jsonify({'error': 'Membro não encontrado'}), 404
+        
+        # Atualiza permissões modulares (sempre permitido, mesmo para si mesmo)
+        if 'can_operate' in data:
+            user.can_operate = bool(data['can_operate'])
+        
+        if 'can_present' in data:
+            user.can_present = bool(data['can_present'])
+        
+        # Atualiza role se fornecido (mas não permite alterar próprio role para não-admin)
+        if 'role' in data:
+            if is_self:
+                return jsonify({'error': 'Não é possível alterar seu próprio role'}), 403
+            
+            new_role = data['role']
+            if new_role not in ['operator', 'presenter']:
+                return jsonify({'error': 'Role inválida. Apenas operator e presenter são permitidos'}), 400
+            
+            from models import UserRole
+            user.role = UserRole(new_role)
+        
+        db.session.commit()
+        
+        # Emite evento WebSocket para notificar outros clientes sobre a mudança
+        try:
+            from websocket_server import socketio
+            socketio.emit('permissions_updated', {
+                'user_id': user.id,
+                'permissions': {
+                    'can_operate': user.can_operate,
+                    'can_present': user.can_present,
+                    'role': user.role.value
+                }
+            }, room=f'company_{company_id}')
+            print(f'[WEBSOCKET] Permissões atualizadas para usuário {user.name} (ID: {user.id})')
+        except Exception as e:
+            print(f'[WEBSOCKET] Erro ao emitir evento: {e}')
+        
+        return jsonify({
+            'message': 'Permissões atualizadas com sucesso',
+            'user': {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email,
+                'role': user.role.value,
                 'can_operate': user.can_operate,
                 'can_present': user.can_present,
-                'role': user.role.value
+                'avatar': user.avatar
             }
-        }, room=f'company_{company_id}')
-        print(f'[WEBSOCKET] Permissões atualizadas para usuário {user.name} (ID: {user.id})')
+        })
     except Exception as e:
-        print(f'[WEBSOCKET] Erro ao emitir evento: {e}')
-    
-    return jsonify({
-        'message': 'Permissões atualizadas com sucesso',
-        'user': {
-            'id': user.id,
-            'name': user.name,
-            'email': user.email,
-            'role': user.role.value,
-            'can_operate': user.can_operate,
-            'can_present': user.can_present,
-            'avatar': user.avatar
-        }
-    })
+        import traceback
+        print(f"[ERRO] Erro ao atualizar permissões: {e}")
+        traceback.print_exc()
+        return jsonify({'error': f'Erro ao atualizar permissões: {str(e)}'}), 500
 
 @team_bp.route('/<int:member_id>', methods=['DELETE'])
 @jwt_required(allowed_roles=['admin'])

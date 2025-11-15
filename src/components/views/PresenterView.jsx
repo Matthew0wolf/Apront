@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, AlertTriangle, Info, Wifi, WifiOff, FileText, EyeOff, Eye, Settings } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Info, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import LiveClock from '@/components/shared/LiveClock';
 import * as Icons from 'lucide-react';
@@ -86,8 +86,8 @@ const PresenterView = () => {
   const { timeElapsed } = useTimer();
   const { isConnected, setActiveRundownId } = useSync();
   
-  // Configurações sincronizadas com operador
-  const { presenterConfig, updatePresenterConfig } = usePresenterConfig();
+  // Configurações sincronizadas com operador (apenas leitura)
+  const { presenterConfig } = usePresenterConfig();
 
   const { toast } = useToast();
   const { apiCall } = useApi();
@@ -95,19 +95,21 @@ const PresenterView = () => {
   const [flash, setFlash] = useState(false);
   const [currentScript, setCurrentScript] = useState(null);
   
-  // Estado local para mostrar painel de configurações
-  const [showSettings, setShowSettings] = useState(false);
   
   // Estado para auto-scroll
   const [scrollProgress, setScrollProgress] = useState(0); // 0-100%
   const scriptContainerRef = useRef(null);
   const rafRef = useRef(null);
   const lastTsRef = useRef(0);
-  const [manualScrollUntil, setManualScrollUntil] = useState(0);
+  const manualScrollUntil = useRef(0);
+  const accumulatedScroll = useRef(0); // Acumulador de scroll para garantir movimento
+  const savedScrollPosition = useRef(0); // Salva posição quando oculta/mostra script
 
   useEffect(() => {
     if (!rundown || rundown.id !== projectId) {
+      console.log('🔗 PresenterView: Carregando rundown:', projectId);
       const rundownData = loadRundownState(projectId);
+      console.log('🔗 PresenterView: Rundown carregado:', rundownData?.name);
       if (!rundownData) {
         toast({ variant: "destructive", title: "Erro", description: "Rundown não encontrado." });
         navigate(`/project/${projectId}/select-role`);
@@ -159,28 +161,78 @@ const PresenterView = () => {
     }
   }, [currentItem]);
 
+  // AudioContext global para evitar problemas de autoplay
+  const audioContextRef = useRef(null);
+  
+  // Inicializa AudioContext na primeira interação do usuário
+  useEffect(() => {
+    const initAudioContext = async () => {
+      if (!audioContextRef.current) {
+        try {
+          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+          // Tenta resumir o contexto (necessário para autoplay)
+          if (audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+          }
+        } catch (error) {
+          console.warn('Erro ao inicializar AudioContext:', error);
+        }
+      }
+    };
+    
+    // Inicializa quando o usuário interage pela primeira vez
+    const handleUserInteraction = () => {
+      initAudioContext();
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+    
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+    
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, []);
+
   // Função para tocar som de alerta
-  const playAlertSound = useCallback((frequency = 800, duration = 200) => {
+  const playAlertSound = useCallback(async (frequency = 800, duration = 200) => {
+    // Verifica se deve tocar som baseado na configuração
+    const shouldPlay = presenterConfig.audioAlerts === 'presenter' || presenterConfig.audioAlerts === 'both';
+    if (!shouldPlay) {
+      return;
+    }
+    
     try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
+      // Garante que o AudioContext está inicializado
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      // Resume o contexto se estiver suspenso
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      
+      const oscillator = audioContextRef.current.createOscillator();
+      const gainNode = audioContextRef.current.createGain();
       
       oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
+      gainNode.connect(audioContextRef.current.destination);
       
       oscillator.frequency.value = frequency;
       oscillator.type = 'sine';
       
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration / 1000);
+      gainNode.gain.setValueAtTime(0.3, audioContextRef.current.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContextRef.current.currentTime + duration / 1000);
       
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + duration / 1000);
+      oscillator.start(audioContextRef.current.currentTime);
+      oscillator.stop(audioContextRef.current.currentTime + duration / 1000);
     } catch (error) {
       console.error('Erro ao tocar som:', error);
     }
-  }, []);
+  }, [presenterConfig.audioAlerts]);
 
   useEffect(() => {
     if (!currentItem || !isRunning) return;
@@ -262,158 +314,517 @@ const PresenterView = () => {
     loadScript();
   }, [currentItem, apiCall]);
 
-  // Função para toggle do script
-  const toggleScript = () => {
-    updatePresenterConfig({ showScript: !presenterConfig.showScript });
-    toast({
-      title: !presenterConfig.showScript ? "📖 Script Visível" : "👁️ Script Oculto",
-      description: !presenterConfig.showScript 
-        ? "Exibindo scripts dos itens" 
-        : "Modo simplificado ativado - apenas títulos",
-      duration: 2000
-    });
-  };
-
-  // Função para entrar em fullscreen
-  const enterFullscreen = () => {
-    const elem = document.documentElement;
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen();
-    } else if (elem.webkitRequestFullscreen) {
-      elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) {
-      elem.msRequestFullscreen();
-    }
-  };
-
-  // Função para sair do fullscreen
-  const exitFullscreen = () => {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) {
-      document.msExitFullscreen();
-    }
-  };
 
   // Auto-scroll do script
   useEffect(() => {
     const container = scriptContainerRef.current;
-    if (!container) return;
-    if (!presenterConfig.autoScroll || !currentItem) return;
+    
+    // Log inicial para debug
+    console.log('🔍 Auto-scroll: useEffect executado', {
+      hasContainer: !!container,
+      autoScroll: presenterConfig.autoScroll,
+      showScript: presenterConfig.showScript,
+      hasCurrentItem: !!currentItem,
+      isRunning,
+      hasCurrentScript: !!currentScript,
+      hasScript: !!(currentScript?.script),
+      scrollSpeed: presenterConfig.scrollSpeed
+    });
+    
+    if (!container) {
+      console.log('⚠️ Auto-scroll: Container não encontrado');
+      return;
+    }
+    
+    // Verifica se o script está visível
+    if (!presenterConfig.showScript) {
+      console.log('⚠️ Auto-scroll: Script oculto, salvando posição e parando scroll');
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      // Salva a posição atual do scroll para restaurar depois
+      if (container) {
+        savedScrollPosition.current = container.scrollTop;
+        accumulatedScroll.current = container.scrollTop;
+      }
+      // Não reseta o progresso, apenas para a animação
+      return;
+    }
+    
+    if (!presenterConfig.autoScroll || !currentItem) {
+      console.log('⚠️ Auto-scroll: Desativado ou sem item', { 
+        autoScroll: presenterConfig.autoScroll, 
+        hasItem: !!currentItem,
+        currentItemId: currentItem?.id,
+        currentItemTitle: currentItem?.title
+      });
+      // Só reseta se auto-scroll foi DESATIVADO (não apenas pausado)
+      if (!presenterConfig.autoScroll) {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        setScrollProgress(0);
+        accumulatedScroll.current = 0;
+        savedScrollPosition.current = 0;
+      }
+      return;
+    }
 
-    const getTotalHeight = () => Math.max(0, container.scrollHeight - container.clientHeight);
+    if (!isRunning) {
+      console.log('⚠️ Auto-scroll: Timer não está rodando, pausando scroll mas mantendo posição', { isRunning });
+      // Pausa a animação mas mantém a posição atual
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      // Salva a posição atual
+      if (container) {
+        savedScrollPosition.current = container.scrollTop;
+        accumulatedScroll.current = container.scrollTop;
+      }
+      return;
+    }
+    
+    // Verifica se o script está disponível
+    if (!currentScript || !currentScript.script) {
+      console.log('⚠️ Auto-scroll: Script não disponível ainda', { 
+        hasCurrentScript: !!currentScript, 
+        hasScript: !!(currentScript?.script),
+        currentItemId: currentItem?.id,
+        currentItemTitle: currentItem?.title
+      });
+      return;
+    }
+
+    console.log('✅ Auto-scroll: Todas as condições atendidas, iniciando...', { 
+      autoScroll: presenterConfig.autoScroll, 
+      isRunning, 
+      scrollSpeed: presenterConfig.scrollSpeed,
+      itemDuration: currentItem.duration,
+      scriptLength: currentScript.script?.length || 0
+    });
+
+    const getTotalHeight = () => {
+      const scrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      const total = Math.max(0, scrollHeight - clientHeight);
+      
+      // Log quando não há altura (para debug)
+      if (total === 0 && scrollHeight > 0) {
+        console.warn('⚠️ Auto-scroll: Container sem altura para scrollar', {
+          scrollHeight,
+          clientHeight,
+          total,
+          hasContent: container.children.length > 0,
+          containerVisible: container.offsetHeight > 0
+        });
+      }
+      
+      return total;
+    };
+    
     const itemDuration = Number(currentItem.duration) || 0;
     const effectiveDuration = itemDuration > 0 ? itemDuration : 120;
-    const getPixelsPerSecond = () => (getTotalHeight() / effectiveDuration) * presenterConfig.scrollSpeed;
+    
+    const getPixelsPerSecond = () => {
+      const totalHeight = getTotalHeight();
+      if (totalHeight <= 0) return 0;
+      // Calcula pixels por segundo baseado na duração do item e velocidade configurada
+      // scrollSpeed é um multiplicador (0.05x = muito lento, 2.0x = muito rápido)
+      const basePixelsPerSecond = totalHeight / effectiveDuration;
+      const pixelsPerSecond = basePixelsPerSecond * presenterConfig.scrollSpeed;
+      
+      // Log apenas quando mudar significativamente
+      if (pixelsPerSecond > 0 && pixelsPerSecond < 1) {
+        console.log('🐌 Auto-scroll: Velocidade muito lenta', { 
+          totalHeight, 
+          effectiveDuration, 
+          scrollSpeed: presenterConfig.scrollSpeed, 
+          pixelsPerSecond: pixelsPerSecond.toFixed(4) 
+        });
+      }
+      
+      return pixelsPerSecond;
+    };
 
     const step = (ts) => {
-      if (Date.now() >= manualScrollUntil) {
+      // Log apenas ocasionalmente para não poluir o console
+      if (Math.random() < 0.01) { // 1% das vezes
+        console.log('🔄 Auto-scroll: step executado', {
+          isRunning,
+          autoScroll: presenterConfig.autoScroll,
+          hasContainer: !!container,
+          scrollTop: container.scrollTop,
+          scrollHeight: container.scrollHeight,
+          clientHeight: container.clientHeight
+        });
+      }
+      
+      if (!isRunning || !presenterConfig.autoScroll) {
+        console.log('⏸️ Auto-scroll: Parando', { isRunning, autoScroll: presenterConfig.autoScroll });
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        return;
+      }
+
+      // Verifica se pode fazer scroll (não está em pausa manual)
+      const canScroll = Date.now() >= manualScrollUntil.current;
+      
+      if (canScroll) {
         if (lastTsRef.current) {
           const dt = Math.min((ts - lastTsRef.current) / 1000, 0.2);
           const totalHeight = getTotalHeight();
-          if (container.scrollTop < totalHeight) {
-            const minStep = 0.5;
-            const pixelsPerSecond = getPixelsPerSecond();
-            const delta = Math.max(minStep, pixelsPerSecond * dt);
-            container.scrollTop = Math.min(totalHeight, container.scrollTop + delta);
-            const progress = totalHeight > 0 ? (container.scrollTop / totalHeight) * 100 : 100;
-            setScrollProgress(Math.min(progress, 100));
+          
+          if (totalHeight > 0) {
+            const currentScrollTop = container.scrollTop;
+            
+            // Verifica se ainda não chegou no final (com margem de 2px para evitar problemas de arredondamento)
+            if (currentScrollTop < totalHeight - 2) {
+              // Calcula velocidade baseada na duração do item
+              const pixelsPerSecond = getPixelsPerSecond();
+              
+              // Log de debug para entender o problema
+              if (pixelsPerSecond === 0) {
+                console.warn('⚠️ Auto-scroll: pixelsPerSecond é 0!', {
+                  totalHeight: getTotalHeight(),
+                  effectiveDuration,
+                  scrollSpeed: presenterConfig.scrollSpeed,
+                  currentItem: currentItem?.title
+                });
+                // Não retorna, apenas continua (pode ser temporário)
+              }
+              
+              // Calcula delta baseado no tempo decorrido
+              let delta = pixelsPerSecond * dt;
+              
+              // Garante movimento mínimo para evitar travamento
+              // Sempre garante movimento quando há velocidade configurada
+              if (pixelsPerSecond > 0) {
+                // Mínimo absoluto: garante movimento mesmo quando dt é muito pequeno
+                // Ajustado para ser menor em velocidades baixas, maior em velocidades altas
+                let minDelta;
+                if (presenterConfig.scrollSpeed < 0.3) {
+                  minDelta = 0.1; // Muito lento: mínimo menor
+                } else if (presenterConfig.scrollSpeed < 1.0) {
+                  minDelta = 0.2; // Lento: mínimo médio
+                } else {
+                  minDelta = 0.3; // Normal/Rápido: mínimo maior
+                }
+                
+                // Se o delta calculado for muito pequeno ou zero, usa o mínimo
+                if (delta <= 0 || delta < minDelta) {
+                  const oldDelta = delta;
+                  delta = minDelta;
+                  // Log apenas na primeira vez ou quando delta é muito pequeno
+                  if (oldDelta <= 0 || (oldDelta < 0.01 && Math.random() < 0.1)) {
+                    console.log('🔧 Auto-scroll: Aplicando mínimo', {
+                      oldDelta: oldDelta.toFixed(4),
+                      newDelta: delta.toFixed(4),
+                      minDelta: minDelta.toFixed(4),
+                      pixelsPerSecond: pixelsPerSecond.toFixed(4),
+                      dt: dt.toFixed(4),
+                      scrollSpeed: presenterConfig.scrollSpeed
+                    });
+                  }
+                }
+              } else {
+                // Se pixelsPerSecond é 0, tenta usar um mínimo absoluto muito pequeno
+                // Isso pode acontecer temporariamente durante o carregamento
+                delta = 0.05;
+                console.warn('⚠️ Auto-scroll: pixelsPerSecond é 0, usando mínimo absoluto', {
+                  totalHeight,
+                  effectiveDuration,
+                  scrollSpeed: presenterConfig.scrollSpeed
+                });
+              }
+              
+              // Acumula o delta no acumulador
+              accumulatedScroll.current += delta;
+              
+              // Calcula novo scrollTop baseado no acumulador
+              const newScrollTop = Math.min(totalHeight, accumulatedScroll.current);
+              
+              // Tenta atualizar o scroll usando múltiplas estratégias
+              // Estratégia 1: scrollBy incremental (mais confiável)
+              if (delta > 0) {
+                container.scrollBy({ top: delta, behavior: 'auto' });
+              }
+              
+              // Estratégia 2: scrollTo para posição absoluta (fallback)
+              const actualAfterScrollBy = container.scrollTop;
+              if (Math.abs(actualAfterScrollBy - newScrollTop) > 1) {
+                container.scrollTo({ top: newScrollTop, behavior: 'auto' });
+              }
+              
+              // Estratégia 3: scrollTop direto (último recurso)
+              const actualAfterScrollTo = container.scrollTop;
+              if (Math.abs(actualAfterScrollTo - newScrollTop) > 1) {
+                container.scrollTop = newScrollTop;
+              }
+              
+              // Sincroniza o acumulador com o scrollTop real
+              const finalScrollTop = container.scrollTop;
+              if (Math.abs(finalScrollTop - accumulatedScroll.current) > 1) {
+                // Se o scrollTop real está diferente do acumulador, sincroniza
+                accumulatedScroll.current = finalScrollTop;
+              }
+              
+              // Calcula progresso baseado no scrollTop real (mais preciso)
+              const progress = totalHeight > 0 ? (finalScrollTop / totalHeight) * 100 : 0;
+              const clampedProgress = Math.min(Math.max(progress, 0), 100);
+              setScrollProgress(clampedProgress);
+              
+              // Log apenas a cada 5% para não poluir o console
+              const progressInt = Math.floor(clampedProgress);
+              if (progressInt % 5 === 0 && progressInt > 0 && progressInt < 100) {
+                const prevProgress = Math.floor((currentScrollTop / totalHeight) * 100);
+                if (progressInt !== prevProgress) {
+                  console.log('📊 Auto-scroll: Progresso', { 
+                    scrollTop: finalScrollTop.toFixed(2), 
+                    totalHeight, 
+                    progress: clampedProgress.toFixed(1) + '%',
+                    delta: delta.toFixed(2),
+                    pixelsPerSecond: pixelsPerSecond.toFixed(2)
+                  });
+                }
+              }
+            } else {
+              // Já chegou ao final
+              setScrollProgress(100);
+              if (container.scrollTop < totalHeight) {
+                container.scrollTop = totalHeight;
+                accumulatedScroll.current = totalHeight;
+              }
+              
+              // Se loop está ativado, volta ao início
+              if (presenterConfig.scrollLoop) {
+                console.log('🔄 Auto-scroll: Loop ativado, voltando ao início');
+                container.scrollTop = 0;
+                accumulatedScroll.current = 0;
+                savedScrollPosition.current = 0;
+                lastTsRef.current = ts; // Reseta timestamp para reiniciar cálculo
+                setScrollProgress(0);
+              } else {
+                // Para a animação quando chega no final (sem loop)
+                console.log('🏁 Auto-scroll: Concluído (100%) - Parando no final');
+                if (rafRef.current) {
+                  cancelAnimationFrame(rafRef.current);
+                  rafRef.current = null;
+                }
+                // Salva a posição final
+                savedScrollPosition.current = totalHeight;
+              }
+            }
           } else {
-            setScrollProgress(100);
+            // Container ainda não tem altura suficiente ou não há conteúdo para scrollar
+            console.log('⚠️ Auto-scroll: Sem altura para scrollar', { 
+              scrollHeight: container.scrollHeight, 
+              clientHeight: container.clientHeight,
+              totalHeight 
+            });
+            setScrollProgress(0);
           }
+        } else {
+          // Primeira execução: inicializa timestamp
+          console.log('🚀 Auto-scroll: Primeira execução');
+          lastTsRef.current = ts;
+          container.scrollTop = 0;
+          setScrollProgress(0);
         }
+      } else {
+        // Está em pausa manual, mas continua o loop
+        // Não atualiza lastTsRef para manter o dt correto quando voltar
       }
+      
       lastTsRef.current = ts;
       rafRef.current = requestAnimationFrame(step);
     };
 
-    const start = () => {
-      lastTsRef.current = 0;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(step);
-    };
-    const startTimeout = setTimeout(start, 50);
+            const start = () => {
+              console.log('▶️ Auto-scroll: Iniciando animação');
+              if (rafRef.current) cancelAnimationFrame(rafRef.current);
+              
+              // Aguarda um pouco para garantir que o container foi renderizado e está visível
+              // Se o script estava oculto, pode precisar de mais tempo para renderizar
+              const waitTime = presenterConfig.showScript ? 100 : 300;
+              
+              setTimeout(() => {
+                // Verifica novamente se o container ainda existe e está visível
+                if (!container || !presenterConfig.showScript) {
+                  console.log('⚠️ Auto-scroll: Container não disponível ou script oculto após delay');
+                  return;
+                }
+                
+                const totalHeight = getTotalHeight();
+                console.log('📏 Auto-scroll: Dimensões iniciais', { 
+                  scrollHeight: container.scrollHeight, 
+                  clientHeight: container.clientHeight, 
+                  totalHeight,
+                  scrollTop: container.scrollTop,
+                  savedPosition: savedScrollPosition.current,
+                  hasChildren: container.children.length > 0,
+                  firstChildHeight: container.children[0]?.offsetHeight || 0,
+                  containerVisible: container.offsetHeight > 0,
+                  containerDisplay: window.getComputedStyle(container).display,
+                  containerOverflow: window.getComputedStyle(container).overflowY,
+                  showScript: presenterConfig.showScript
+                });
+                
+                if (totalHeight > 0) {
+                  // Calcula posição inicial baseada na configuração ou posição salva
+                  let restorePosition = savedScrollPosition.current;
+                  
+                  // Se não tem posição salva, usa a posição inicial configurada pelo operador
+                  if (restorePosition === 0 && presenterConfig.scrollStartPosition > 0) {
+                    restorePosition = (presenterConfig.scrollStartPosition / 100) * totalHeight;
+                    console.log('📍 Auto-scroll: Usando posição inicial configurada', {
+                      scrollStartPosition: presenterConfig.scrollStartPosition + '%',
+                      calculatedPosition: restorePosition.toFixed(2),
+                      totalHeight
+                    });
+                  }
+                  
+                  container.scrollTop = restorePosition;
+                  accumulatedScroll.current = restorePosition;
+                  
+                  // Calcula progresso baseado na posição restaurada
+                  const progress = totalHeight > 0 ? (restorePosition / totalHeight) * 100 : 0;
+                  setScrollProgress(Math.min(Math.max(progress, 0), 100));
+                  
+                  // Se estava no topo ou não tinha posição salva, reseta timestamp para começar do zero
+                  // Se tinha posição salva, mantém o timestamp atual para continuar de onde parou
+                  if (restorePosition === 0) {
+                    lastTsRef.current = 0;
+                  }
+                  
+                  console.log('✅ Auto-scroll: Iniciando scroll com', { 
+                    totalHeight, 
+                    effectiveDuration, 
+                    scrollSpeed: presenterConfig.scrollSpeed,
+                    restoredPosition: restorePosition.toFixed(2),
+                    progress: progress.toFixed(1) + '%',
+                    scrollLoop: presenterConfig.scrollLoop,
+                    scrollStartPosition: presenterConfig.scrollStartPosition + '%'
+                  });
+                  rafRef.current = requestAnimationFrame(step);
+                } else {
+                  console.warn('⚠️ Auto-scroll: Container sem altura, tentando novamente em 500ms', {
+                    scrollHeight: container.scrollHeight,
+                    clientHeight: container.clientHeight,
+                    hasContent: container.children.length > 0,
+                    containerVisible: container.offsetHeight > 0,
+                    hasScript: !!(currentScript?.script),
+                    showScript: presenterConfig.showScript
+                  });
+                  // Aguarda mais tempo e tenta novamente (o script pode estar carregando)
+                  setTimeout(() => {
+                    // Verifica novamente se ainda está visível
+                    if (!container || !presenterConfig.showScript) {
+                      console.log('⚠️ Auto-scroll: Container não disponível ou script oculto após retry');
+                      return;
+                    }
+                    
+                    const retryHeight = getTotalHeight();
+                    if (retryHeight > 0) {
+                      // Calcula posição inicial baseada na configuração ou posição salva
+                      let restorePosition = savedScrollPosition.current;
+                      
+                      // Se não tem posição salva, usa a posição inicial configurada pelo operador
+                      if (restorePosition === 0 && presenterConfig.scrollStartPosition > 0) {
+                        restorePosition = (presenterConfig.scrollStartPosition / 100) * retryHeight;
+                      }
+                      
+                      container.scrollTop = restorePosition;
+                      accumulatedScroll.current = restorePosition;
+                      
+                      const progress = retryHeight > 0 ? (restorePosition / retryHeight) * 100 : 0;
+                      setScrollProgress(Math.min(Math.max(progress, 0), 100));
+                      
+                      if (restorePosition === 0) {
+                        lastTsRef.current = 0;
+                      }
+                      
+                      console.log('✅ Auto-scroll: Iniciando scroll após retry com', { 
+                        retryHeight, 
+                        restoredPosition: restorePosition.toFixed(2),
+                        scrollLoop: presenterConfig.scrollLoop,
+                        scrollStartPosition: presenterConfig.scrollStartPosition + '%'
+                      });
+                      rafRef.current = requestAnimationFrame(step);
+                    } else {
+                      console.error('❌ Auto-scroll: Container ainda sem altura após retry', {
+                        scrollHeight: container.scrollHeight,
+                        clientHeight: container.clientHeight,
+                        hasContent: container.children.length > 0,
+                        containerVisible: container.offsetHeight > 0,
+                        hasScript: !!(currentScript?.script),
+                        showScript: presenterConfig.showScript,
+                        currentItem: currentItem?.title
+                      });
+                    }
+                  }, 500);
+                }
+              }, waitTime);
+            };
+    
+    const startTimeout = setTimeout(start, 100);
 
-    const onWheel = () => setManualScrollUntil(Date.now() + 1200);
-    const onTouch = () => setManualScrollUntil(Date.now() + 1200);
+    const onWheel = () => {
+      manualScrollUntil.current = Date.now() + 1200;
+      // Atualiza posição salva quando usuário faz scroll manual
+      if (container) {
+        savedScrollPosition.current = container.scrollTop;
+        accumulatedScroll.current = container.scrollTop;
+      }
+      console.log('🖱️ Auto-scroll: Scroll manual detectado, pausando por 1.2s e salvando posição');
+    };
+    const onTouch = () => {
+      manualScrollUntil.current = Date.now() + 1200;
+      // Atualiza posição salva quando usuário faz scroll manual
+      if (container) {
+        savedScrollPosition.current = container.scrollTop;
+        accumulatedScroll.current = container.scrollTop;
+      }
+      console.log('👆 Auto-scroll: Touch manual detectado, pausando por 1.2s e salvando posição');
+    };
     container.addEventListener('wheel', onWheel, { passive: true });
     container.addEventListener('touchmove', onTouch, { passive: true });
 
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      clearTimeout(startTimeout);
-      container.removeEventListener('wheel', onWheel);
-      container.removeEventListener('touchmove', onTouch);
-      lastTsRef.current = 0;
+    // Adiciona listener para redimensionamento e transições (zoom/mudança de layout)
+    const handleResize = () => {
+      console.log('📐 Auto-scroll: Redimensionamento detectado');
+      if (presenterConfig.autoScroll && isRunning) {
+        start(); // Reinicia o RAF
+      }
     };
-  }, [presenterConfig.autoScroll, presenterConfig.scrollSpeed, currentItem, manualScrollUntil]);
+    window.addEventListener('resize', handleResize);
+    container.addEventListener('transitionend', handleResize); // Para mudanças de layout/zoom
 
-  // Reset scroll ao mudar de item
+            return () => {
+              console.log('🔌 Auto-scroll: Limpando listeners');
+              if (rafRef.current) cancelAnimationFrame(rafRef.current);
+              clearTimeout(startTimeout);
+              container.removeEventListener('wheel', onWheel);
+              container.removeEventListener('touchmove', onTouch);
+              container.removeEventListener('transitionend', handleResize);
+              window.removeEventListener('resize', handleResize);
+              lastTsRef.current = 0;
+            };
+          }, [presenterConfig.autoScroll, presenterConfig.scrollSpeed, presenterConfig.scrollLoop, presenterConfig.scrollStartPosition, presenterConfig.showScript, currentItem, isRunning, currentScript]);
+
+  // Reset scroll ao mudar de item (único momento que realmente reseta)
   useEffect(() => {
     if (scriptContainerRef.current) {
+      console.log('🔄 Auto-scroll: Resetando ao mudar de item');
       scriptContainerRef.current.scrollTop = 0;
+      accumulatedScroll.current = 0; // Reseta acumulador
+      savedScrollPosition.current = 0; // Reseta posição salva
       setScrollProgress(0);
+      lastTsRef.current = 0; // Reseta timestamp para reiniciar cálculo
     }
   }, [currentItem]);
 
   // Pausa breve ao entrar/sair de fullscreen
   useEffect(() => {
     const onFsChange = () => {
-      setManualScrollUntil(Date.now() + 600);
+      manualScrollUntil.current = Date.now() + 600;
     };
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
-  // Atalhos de teclado
-  useEffect(() => {
-    const handleKeyPress = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        return;
-      }
-
-      switch (e.key.toLowerCase()) {
-        case 'f':
-          // F: Toggle Fullscreen
-          if (document.fullscreenElement) {
-            exitFullscreen();
-            toast({ title: "🖥️ Fullscreen Desativado", duration: 1500 });
-          } else {
-            enterFullscreen();
-            toast({ title: "🖥️ Fullscreen Ativado", duration: 1500 });
-          }
-          break;
-        
-        case 's':
-          // S: Toggle Script
-          toggleScript();
-          break;
-        
-        case 'h':
-          // H: Hide/Show Header
-          document.querySelector('header')?.classList.toggle('hidden');
-          toast({ title: "👁️ Interface Alternada", duration: 1500 });
-          break;
-        
-        case 'a':
-          // A: Toggle Auto-scroll
-          updatePresenterConfig({ autoScroll: !presenterConfig.autoScroll });
-          toast({ 
-            title: !presenterConfig.autoScroll ? "▶️ Auto-scroll Ativado" : "⏸️ Auto-scroll Pausado", 
-            duration: 1500 
-          });
-          break;
-        
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [toast, toggleScript, presenterConfig.autoScroll, updatePresenterConfig]);
 
   return (
     <div 
@@ -472,215 +883,10 @@ const PresenterView = () => {
               </div>
             )}
           </div>
-          
-          {/* Botão Toggle Script */}
-          <Button
-            onClick={toggleScript}
-            variant={presenterConfig.showScript ? "default" : "outline"}
-            size="sm"
-            className="gap-2"
-            title={presenterConfig.showScript ? "Ocultar Scripts (S)" : "Mostrar Scripts (S)"}
-          >
-            {presenterConfig.showScript ? (
-              <>
-                <FileText className="w-4 h-4" />
-                <span className="hidden sm:inline">Script</span>
-              </>
-            ) : (
-              <>
-                <EyeOff className="w-4 h-4" />
-                <span className="hidden sm:inline">Simplificado</span>
-              </>
-            )}
-          </Button>
-
-          {/* Botão Configurações */}
-          <Button
-            onClick={() => setShowSettings(!showSettings)}
-            variant={showSettings ? "default" : "outline"}
-            size="sm"
-            className="gap-2"
-            title="Configurações de Visualização"
-          >
-            <Settings className="w-4 h-4" />
-            <span className="hidden sm:inline">Config</span>
-          </Button>
-          
-          {/* Indicador de Atalhos */}
-          <div className="hidden lg:flex items-center gap-2 text-xs text-gray-400">
-            <kbd className="px-2 py-1 bg-white/10 rounded">F</kbd>
-            <span>Fullscreen</span>
-            <kbd className="px-2 py-1 bg-white/10 rounded ml-2">S</kbd>
-            <span>Script</span>
-            <kbd className="px-2 py-1 bg-white/10 rounded ml-2">A</kbd>
-            <span>Auto-scroll</span>
-            <kbd className="px-2 py-1 bg-white/10 rounded ml-2">H</kbd>
-            <span>Ocultar</span>
-          </div>
         </div>
         <LiveClock />
       </header>
 
-      {/* Painel de Configurações */}
-      <AnimatePresence>
-        {showSettings && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="relative z-20 mx-3 sm:mx-6 mb-3 sm:mb-4 bg-card/95 backdrop-blur-lg border border-border rounded-xl p-4 sm:p-6 shadow-2xl max-h-[calc(100vh-150px)] overflow-y-auto"
-          >
-            <h3 className="text-lg font-bold text-foreground mb-4 flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Configurações de Visualização
-            </h3>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-              {/* Tamanho da Fonte */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground flex items-center justify-between">
-                  Tamanho da Fonte
-                  <span className="text-xs text-muted-foreground">{presenterConfig.fontSize}px</span>
-                </label>
-                <input
-                  type="range"
-                  min="16"
-                  max="48"
-                  value={presenterConfig.fontSize}
-                  onChange={(e) => updatePresenterConfig({ fontSize: parseInt(e.target.value) })}
-                  className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>16px</span>
-                  <span>48px</span>
-                </div>
-              </div>
-
-              {/* Espaçamento entre Linhas */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground flex items-center justify-between">
-                  Espaçamento
-                  <span className="text-xs text-muted-foreground">{presenterConfig.lineHeight.toFixed(1)}</span>
-                </label>
-                <input
-                  type="range"
-                  min="1.2"
-                  max="2.5"
-                  step="0.1"
-                  value={presenterConfig.lineHeight}
-                  onChange={(e) => updatePresenterConfig({ lineHeight: parseFloat(e.target.value) })}
-                  className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer"
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Compacto</span>
-                  <span>Espaçado</span>
-                </div>
-              </div>
-
-              {/* Família da Fonte */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">
-                  Fonte
-                </label>
-                <select
-                  value={presenterConfig.fontFamily}
-                  onChange={(e) => updatePresenterConfig({ fontFamily: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-input rounded-md text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="sans-serif">Sans-serif (Moderna)</option>
-                  <option value="serif">Serif (Clássica)</option>
-                  <option value="mono">Monospace (Código)</option>
-                </select>
-              </div>
-
-              {/* Auto-scroll */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground flex items-center justify-between">
-                  Auto-scroll
-                  <span className={`text-xs px-2 py-1 rounded-full ${presenterConfig.autoScroll ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {presenterConfig.autoScroll ? 'Ativo' : 'Inativo'}
-                  </span>
-                </label>
-                <Button
-                  onClick={() => updatePresenterConfig({ autoScroll: !presenterConfig.autoScroll })}
-                  variant={presenterConfig.autoScroll ? "default" : "outline"}
-                  className="w-full"
-                  size="sm"
-                >
-                  {presenterConfig.autoScroll ? '⏸️ Pausar' : '▶️ Ativar'} Auto-scroll
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  Atalho: Tecla <kbd className="px-1 py-0.5 bg-white/10 rounded text-xs">A</kbd>
-                </p>
-              </div>
-
-              {/* Velocidade do Scroll */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground flex items-center justify-between">
-                  Velocidade
-                  <span className="text-xs text-muted-foreground">{presenterConfig.scrollSpeed.toFixed(1)}x</span>
-                </label>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="2.0"
-                  step="0.1"
-                  value={presenterConfig.scrollSpeed}
-                  onChange={(e) => updatePresenterConfig({ scrollSpeed: parseFloat(e.target.value) })}
-                  disabled={!presenterConfig.autoScroll}
-                  className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>0.5x (Lento)</span>
-                  <span>2.0x (Rápido)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Preview da Formatação */}
-            <div className="mt-6 p-4 bg-black/40 rounded-lg border border-white/10">
-              <h4 className="text-xs font-bold text-muted-foreground mb-3 uppercase tracking-wide">Preview</h4>
-              <FormattedScript
-                text="Este é um **texto em negrito**, com __ênfase__, [PAUSA] e texto normal. [IMPORTANTE]"
-                className="text-left"
-                style={{
-                  fontSize: `${presenterConfig.fontSize}px`,
-                  lineHeight: presenterConfig.lineHeight,
-                  fontFamily: presenterConfig.fontFamily === 'serif' ? 'Georgia, serif' : 
-                             presenterConfig.fontFamily === 'mono' ? 'monospace' : 
-                             'Inter, system-ui, sans-serif',
-                  color: presenterConfig.textColor
-                }}
-              />
-            </div>
-
-            {/* Botão para Resetar */}
-            <div className="mt-4 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => updatePresenterConfig({
-                  fontSize: 24,
-                  lineHeight: 1.8,
-                  fontFamily: 'sans-serif',
-                  backgroundColor: '#000000',
-                  textColor: '#FFFFFF',
-                  autoScroll: false,
-                  scrollSpeed: 1.0
-                })}
-              >
-                Resetar Padrões
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => setShowSettings(false)}
-              >
-                Fechar
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center overflow-y-auto">
         {!rundown ? (
@@ -762,7 +968,16 @@ const PresenterView = () => {
                       {/* Container do script com scroll */}
                       <div 
                         ref={scriptContainerRef}
-                        className="px-4 sm:px-6 pb-4 sm:pb-6 max-h-[60vh] min-h-[200px] overflow-y-auto scroll-smooth"
+                        className="px-4 sm:px-6 pb-4 sm:pb-6 max-h-[60vh] min-h-[200px] overflow-y-auto"
+                        style={{
+                          WebkitOverflowScrolling: 'touch',
+                          overscrollBehavior: 'contain',
+                          scrollBehavior: 'auto', // Desabilita smooth scroll para permitir controle programático
+                          touchAction: 'pan-y',
+                          // Força o scroll a funcionar
+                          overflowY: 'scroll',
+                          willChange: 'scroll-position'
+                        }}
                       >
                         <FormattedScript 
                           text={currentScript.script}

@@ -5,9 +5,19 @@ Sprint 10 - Auditoria e Segurança
 
 import logging
 import json
+import time
 from datetime import datetime
 from flask import request, g
 from models import db, SystemEvent
+
+
+def get_client_ip():
+    """Obtém IP real do cliente (considerando proxy/load balancer)"""
+    if not request:
+        return None
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr
 
 # Configurar logger
 security_logger = logging.getLogger('security')
@@ -194,12 +204,14 @@ def init_security_logging(app):
             
             # Log de requisições lentas (> 1 segundo)
             if elapsed > 1.0:
+                client_ip = get_client_ip() if request else None
+                user_id = g.current_user.id if hasattr(g, 'current_user') and hasattr(g.current_user, 'id') else None
                 security_logger.warning(
-                    f"Slow request: {request.method} {request.path} - {elapsed:.2f}s",
+                    f"Slow request: {request.method if request else 'UNKNOWN'} {request.path if request else 'UNKNOWN'} - {elapsed:.2f}s",
                     extra={
-                        'user_id': g.current_user.id if hasattr(g, 'current_user') else None,
-                        'ip_address': get_client_ip(),
-                        'action': f"{request.method} {request.path}",
+                        'user_id': user_id,
+                        'ip_address': client_ip,
+                        'action': f"{request.method if request else 'UNKNOWN'} {request.path if request else 'UNKNOWN'}",
                         'resource': f"duration:{elapsed:.2f}s"
                     }
                 )

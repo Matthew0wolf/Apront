@@ -60,9 +60,29 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'Darker Grotesque', sans-serif;
+    /* Prevenir pull-to-refresh e gestos indesejados */
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+    /* Otimização para mobile */
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Permitir seleção de texto em áreas de conteúdo */
+  p, span, div, h1, h2, h3, h4, h5, h6, li, td, th, input, textarea, [contenteditable], .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  /* Prevenir seleção em botões e elementos de interface */
+  button, [role="button"], .no-select {
+    -webkit-user-select: none;
+    user-select: none;
   }
   html {
     font-family: 'Darker Grotesque', sans-serif;
+    /* Otimização para webview mobile */
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    /* Prevenir zoom em double-tap */
+    touch-action: manipulation;
   }
 }
 

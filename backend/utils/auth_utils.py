@@ -7,9 +7,10 @@ import jwt
 from flask import request, jsonify, g
 from functools import wraps
 from models import User
+import os
 
 # Chave secreta para JWT (deve vir de variável de ambiente em produção)
-SECRET_KEY = 'sua_chave_super_secreta'
+SECRET_KEY = os.getenv('JWT_SECRET_KEY') or os.getenv('SECRET_KEY') or 'sua_chave_super_secreta'
 
 
 def jwt_required(allowed_roles=None, permission=None):
@@ -132,4 +133,65 @@ def require_permission(permission):
         
         return wrapper
     return decorator
+
+
+def payment_required(func):
+    """
+    Decorator para verificar se a empresa tem pagamento verificado
+    Bloqueia acesso se payment_verified = False
+    
+    IMPORTANTE: Deve ser aplicado ANTES de @jwt_required() na ordem dos decorators
+    Mas internamente verifica se o usuário já está autenticado
+    
+    Uso:
+        @payment_required
+        @jwt_required()
+        def protected_route():
+            ...
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Verifica se o usuário já está autenticado (definido por jwt_required)
+        if not hasattr(g, 'current_user') or not g.current_user:
+            # Se não estiver autenticado, deixa o jwt_required tratar
+            # Mas adiciona headers CORS para evitar erro de CORS
+            return func(*args, **kwargs)
+        
+        user = g.current_user
+        
+        if not user or not user.company_id:
+            return jsonify({
+                'error': 'Acesso bloqueado',
+                'message': 'Usuário sem empresa associada. Entre em contato com o administrador.'
+            }), 403
+        
+        # Buscar empresa
+        from models import Company
+        company = Company.query.get(user.company_id)
+        
+        if not company:
+            return jsonify({
+                'error': 'Acesso bloqueado',
+                'message': 'Empresa não encontrada. Entre em contato com o administrador.'
+            }), 403
+        
+        # Verificar pagamento
+        if not company.payment_verified:
+            response = jsonify({
+                'error': 'Acesso bloqueado',
+                'message': 'Pagamento não verificado. Entre em contato com o administrador para liberar o acesso.',
+                'payment_required': True,
+                'company_id': company.id,
+                'company_name': company.name
+            })
+            # Adiciona headers CORS mesmo em erro
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+            return response, 403
+        
+        # Pagamento verificado, permite acesso
+        return func(*args, **kwargs)
+    
+    return wrapper
 

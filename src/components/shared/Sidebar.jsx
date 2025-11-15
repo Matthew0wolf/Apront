@@ -44,7 +44,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
       { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'operator', 'presenter'] },
       { id: 'projects', label: 'Meus Roteiros', icon: FolderOpen, roles: ['admin', 'operator', 'presenter'] },
       { id: 'templates', label: 'Modelos', icon: FileText, roles: ['admin', 'operator'] },
-      { id: 'team', label: 'Equipe', icon: Users, roles: ['admin', 'operator'] },
+      { id: 'team', label: 'Equipe', icon: Users, roles: ['admin', 'operator', 'presenter'] },
       { id: 'settings', label: 'Configurações', icon: Settings, roles: ['admin', 'operator', 'presenter'] },
     ];
 

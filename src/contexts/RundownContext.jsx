@@ -10,7 +10,7 @@ const RundownContext = createContext();
 export const useRundown = () => useContext(RundownContext);
 
 // Ref global para bloquear atualizações WebSocket durante drag
-const isDraggingRef = { current: false };
+export const isDraggingRef = { current: false };
 
 
 export const RundownProvider = ({ children }) => {
@@ -94,10 +94,14 @@ export const RundownProvider = ({ children }) => {
     const handleRundownSync = (event) => {
       const { rundownId, changes } = event.detail;
       console.log('📡 RundownContext: Recebida atualização via WebSocket:', { rundownId, changes });
+      console.log('📡 RundownContext: activeRundown?.id:', activeRundown?.id);
+      console.log('📡 RundownContext: Comparação:', String(activeRundown?.id), '===', String(rundownId));
       
       if (String(activeRundown?.id) === String(rundownId)) {
+        console.log('✅ RundownContext: Aplicando mudanças ao rundown ativo');
         // Aplica as mudanças ao rundown ativo
         if (changes.currentItemIndex) {
+          console.log('✅ RundownContext: Atualizando currentItemIndex:', changes.currentItemIndex);
           setCurrentItemIndex(changes.currentItemIndex);
           const newElapsedTime = calculateElapsedTimeForIndex(
             changes.currentItemIndex.folderIndex, 
@@ -105,6 +109,9 @@ export const RundownProvider = ({ children }) => {
             activeRundown.items
           );
           setTimeElapsed(newElapsedTime);
+          console.log('✅ RundownContext: currentItemIndex atualizado e timeElapsed:', newElapsedTime);
+        } else {
+          console.log('⚠️ RundownContext: changes.currentItemIndex não encontrado');
         }
         
         if (changes.isRunning !== undefined) {
@@ -165,10 +172,15 @@ export const RundownProvider = ({ children }) => {
 
   // Funções de sincronização - declaradas antes de serem usadas
   const syncCurrentItemChange = useCallback((newItemIndex) => {
-    console.log('🔄 Sincronizando mudança de item:', newItemIndex);
+    console.log('🔄 RundownContext: Sincronizando mudança de item:', newItemIndex);
+    console.log('🔄 RundownContext: activeRundown?.id:', activeRundown?.id);
     if (activeRundown?.id) {
       // Sincroniza mudança de item atual via WebSocket
-      syncRundownUpdate(activeRundown.id, { currentItemIndex: newItemIndex });
+      const changes = { currentItemIndex: newItemIndex };
+      console.log('🔄 RundownContext: Enviando syncRundownUpdate com:', { rundownId: activeRundown.id, changes });
+      syncRundownUpdate(activeRundown.id, changes);
+    } else {
+      console.warn('⚠️ RundownContext: activeRundown?.id não disponível para sincronização');
     }
   }, [activeRundown?.id, syncRundownUpdate]);
 
@@ -208,34 +220,69 @@ export const RundownProvider = ({ children }) => {
   }, [handleSetCurrentItem, toast, setIsTimerRunning]);
 
   const loadRundownState = useCallback((rundownId) => {
-    const rundownData = rundowns.find(p => p.id === rundownId);
+    // Converte rundownId para string para comparação
+    const rundownIdStr = String(rundownId);
+    console.log('🔄 loadRundownState: Carregando rundown:', rundownIdStr);
+    console.log('🔄 loadRundownState: Rundowns disponíveis:', rundowns.map(r => ({ id: String(r.id), name: r.name })));
+    
+    // Se não houver rundowns carregados ainda, tenta recarregar
+    if (rundowns.length === 0) {
+      console.warn('⚠️ loadRundownState: Nenhum rundown carregado ainda, tentando recarregar...');
+      fetchRundowns();
+      return null;
+    }
+    
+    // Busca o rundown correto (compara como string)
+    const rundownData = rundowns.find(p => String(p.id) === rundownIdStr);
     if (!rundownData) {
+      console.error('❌ loadRundownState: Rundown não encontrado:', rundownIdStr);
+      console.error('❌ loadRundownState: Tentando recarregar rundowns...');
+      // Tenta recarregar rundowns uma vez
+      fetchRundowns();
       return null;
     }
 
-    try {
-      const savedRundown = localStorage.getItem(`rundownState_${rundownId}`);
-      const savedIndex = localStorage.getItem(`currentItemIndex_${rundownId}`);
-      const savedIsRunning = localStorage.getItem(`isRunning_${rundownId}`);
-      const savedTime = localStorage.getItem(`timeElapsed_${rundownId}`);
+    console.log('✅ loadRundownState: Rundown encontrado:', { id: rundownData.id, name: rundownData.name });
 
-      const rundownToLoad = savedRundown ? JSON.parse(savedRundown) : rundownData;
-      setActiveRundown(rundownToLoad);
-      setCurrentItemIndex(savedIndex ? JSON.parse(savedIndex) : { folderIndex: 0, itemIndex: 0 });
+    try {
+      const savedRundown = localStorage.getItem(`rundownState_${rundownIdStr}`);
+      const savedIndex = localStorage.getItem(`currentItemIndex_${rundownIdStr}`);
+      const savedIsRunning = localStorage.getItem(`isRunning_${rundownIdStr}`);
+      const savedTime = localStorage.getItem(`timeElapsed_${rundownIdStr}`);
+
+      // SEMPRE usa o rundownData do servidor (mais atualizado)
+      // localStorage só é usado para estado (índice, tempo, etc), não para dados do rundown
+      setActiveRundown(rundownData);
+      
+      // Carrega estado do localStorage se existir
+      if (savedIndex) {
+        try {
+          const parsedIndex = JSON.parse(savedIndex);
+          setCurrentItemIndex(parsedIndex);
+          console.log('✅ loadRundownState: Índice carregado do localStorage:', parsedIndex);
+        } catch (e) {
+          console.warn('⚠️ loadRundownState: Erro ao parsear índice, usando padrão');
+          setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
+        }
+      } else {
+        setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
+      }
+      
       const running = savedIsRunning ? JSON.parse(savedIsRunning) : false;
       setIsTimerRunning(running);
       setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
       
-      console.log('🔄 Rundown carregado:', rundownId);
+      console.log('✅ loadRundownState: Rundown carregado com sucesso:', { id: rundownData.id, name: rundownData.name });
     } catch (error) {
-      console.error("Failed to load rundown state from localStorage", error);
+      console.error("❌ loadRundownState: Erro ao carregar estado:", error);
+      // Em caso de erro, sempre usa dados do servidor
       setActiveRundown(rundownData);
       setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
       setIsTimerRunning(false);
       setTimeElapsed(0);
     }
     return rundownData;
-  }, [rundowns, setTimeElapsed, setIsTimerRunning]);
+  }, [rundowns, setTimeElapsed, setIsTimerRunning, fetchRundowns]);
 
   const handleCreateRundown = async (newRundownData) => {
     const payload = {
@@ -376,7 +423,6 @@ export const RundownProvider = ({ children }) => {
     syncFolderReorder: syncFolderReorderLocal,
     syncTimerState: syncTimerStateLocal,
     syncCurrentItemChange,
-    isDraggingRef, // Exporta ref para controle de drag
   };
 
   useEffect(() => {
@@ -390,7 +436,9 @@ export const RundownProvider = ({ children }) => {
   useEffect(() => {
     if (activeRundown) {
       try {
-        localStorage.setItem(`rundownState_${activeRundown.id}`, JSON.stringify(activeRundown));
+        // NÃO salva o rundown completo no localStorage para evitar dados desatualizados
+        // localStorage só deve salvar estado (índice, tempo, etc), não dados do rundown
+        // localStorage.setItem(`rundownState_${activeRundown.id}`, JSON.stringify(activeRundown));
         localStorage.setItem(`currentItemIndex_${activeRundown.id}`, JSON.stringify(currentItemIndex));
         localStorage.setItem(`isRunning_${activeRundown.id}`, JSON.stringify(isTimerRunning));
         localStorage.setItem(`timeElapsed_${activeRundown.id}`, JSON.stringify(timeElapsed));
