@@ -35,16 +35,17 @@ def enable_cors(app):
         "max_age": 600,
     }
     
-    # Aplica CORS globalmente para TODAS as rotas
-    # Usando automatic_options=True para garantir que OPTIONS seja tratado automaticamente
-    CORS(
-        app,
-        resources={r"/*": cors_config},
-        automatic_options=True,  # Trata OPTIONS automaticamente
-        supports_credentials=False,  # Não usar credentials com wildcard
-        **cors_config  # Aplica também globalmente
-    )
+    # DESABILITADO Flask-CORS - usando apenas headers manuais
+    # O Flask-CORS pode estar interferindo ou não funcionando corretamente no Railway
+    # Vamos usar apenas os headers manuais no after_request que são mais confiáveis
+    # CORS(
+    #     app,
+    #     resources={r"/*": cors_config},
+    #     automatic_options=True,
+    #     supports_credentials=False,
+    #     **cors_config
+    # )
     
-    print(f"✅ CORS configurado com sucesso!")
-    print(f"   Flask-CORS habilitado com origins: {allowed_origins}")
-    print(f"   Headers manuais também serão adicionados no after_request")
+    print(f"✅ CORS configurado (usando apenas headers manuais)")
+    print(f"   Flask-CORS DESABILITADO - usando headers manuais no after_request")
+    print(f"   Origens permitidas: {allowed_origins}")

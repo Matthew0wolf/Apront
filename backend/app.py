@@ -254,10 +254,10 @@ def check_payment():
                             'message': 'Pagamento não verificado. Entre em contato com o administrador para liberar o acesso.',
                             'payment_required': True
                         })
-                        # Adiciona headers CORS mesmo em erro
-                        response.headers.add('Access-Control-Allow-Origin', '*')
-                        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
-                        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+                        # Adiciona headers CORS mesmo em erro (usando [] para sobrescrever)
+                        response.headers['Access-Control-Allow-Origin'] = '*'
+                        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+                        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
                         return response, 403
         except Exception:
             # Se der erro na verificação, deixa passar (será tratado pelo jwt_required)
@@ -281,39 +281,48 @@ def handle_cors_preflight():
 # Headers de segurança e CORS
 @app.after_request
 def add_security_headers(response):
-    """Adiciona headers de segurança HTTP e CORS"""
-    # CORS headers (SEMPRE adicionar, mesmo que Flask-CORS já tenha adicionado)
-    # Isso garante que os headers estejam presentes em TODAS as respostas
-    # IMPORTANTE: Não usar credentials com wildcard (*)
+    """Adiciona headers de segurança HTTP e CORS - SEMPRE executado"""
+    try:
+        # Força adicionar headers CORS (sobrescreve qualquer valor anterior)
+        # SEMPRE usa '*' para garantir compatibilidade máxima
+        # IMPORTANTE: Usar [] em vez de .add() para garantir sobrescrita
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Max-Age'] = '600'
+        
+        # Debug: log dos headers CORS (SEMPRE em produção para debug)
+        origin_header = request.headers.get('Origin', 'N/A')
+        print(f"🔧 CORS Headers adicionados para {request.method} {request.path}:")
+        print(f"   Origin recebido: {origin_header}")
+        print(f"   Access-Control-Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
+        print(f"   Access-Control-Allow-Methods: {response.headers.get('Access-Control-Allow-Methods')}")
+        print(f"   Status: {response.status_code}")
+        
+        # Headers de segurança HTTP (mais permissivos para não bloquear CORS)
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    except Exception as e:
+        print(f"❌ ERRO ao adicionar headers CORS: {e}")
+        # Mesmo em erro, tenta adicionar os headers básicos
+        try:
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+        except:
+            pass
     
-    # Força adicionar headers CORS (sobrescreve qualquer valor anterior)
-    # SEMPRE usa '*' para garantir compatibilidade máxima
-    # IMPORTANTE: Usar [] em vez de .add() para garantir sobrescrita
+    return response
+
+# Handler de erro global para garantir CORS em erros
+@app.errorhandler(Exception)
+def handle_error(e):
+    """Garante que headers CORS sejam adicionados mesmo em erros"""
+    response = jsonify({'error': str(e)})
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-    response.headers['Access-Control-Max-Age'] = '600'
-    # Não usar Access-Control-Allow-Credentials com wildcard (*)
-    # response.headers['Access-Control-Allow-Credentials'] = 'true'  # Incompatível com '*'
-    
-    # Debug: log dos headers CORS (SEMPRE em produção para debug)
-    origin_header = request.headers.get('Origin', 'N/A')
-    print(f"🔧 CORS Headers adicionados para {request.method} {request.path}:")
-    print(f"   Origin recebido: {origin_header}")
-    print(f"   Access-Control-Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
-    print(f"   Access-Control-Allow-Methods: {response.headers.get('Access-Control-Allow-Methods')}")
-    print(f"   Status: {response.status_code}")
-    
-    # Headers de segurança HTTP (mais permissivos para não bloquear CORS)
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    # Removido X-Frame-Options e Content-Security-Policy muito restritivos que podem interferir
-    # response.headers['X-Frame-Options'] = 'DENY'  # Pode interferir com iframes
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    # Content-Security-Policy muito restritivo pode bloquear requisições
-    # response.headers['Content-Security-Policy'] = "default-src 'self'"  # Muito restritivo
-    
-    return response
+    return response, 500
 
 # Rota de teste na raiz
 @app.route('/')
