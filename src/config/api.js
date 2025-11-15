@@ -55,7 +55,12 @@ console.log('🔧 API configurada:', {
 });
 
 // Testa conectividade com o backend
-fetch(`${API_BASE_URL}/`)
+// Em produção/VPS, usa uma rota específica do backend para evitar conflito com frontend na raiz
+const testUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? `${API_BASE_URL}/`  // Em localhost, backend está na raiz
+  : `${API_BASE_URL}/api/rundowns?limit=1`;  // Em produção, usa rota específica do backend
+
+fetch(testUrl)
   .then(res => {
     console.log('✅ Backend respondeu:', res.status, res.statusText);
     return res.json();
@@ -65,7 +70,7 @@ fetch(`${API_BASE_URL}/`)
   })
   .catch(err => {
     console.error('❌ ERRO: Não foi possível conectar ao backend!');
-    console.error('❌ URL tentada:', `${API_BASE_URL}/`);
+    console.error('❌ URL tentada:', testUrl);
     console.error('❌ Erro:', err.message);
     console.error('⚠️ Verifique se o backend está rodando e acessível no IP:', window.location.hostname);
     console.error('⚠️ Comando para iniciar backend: python backend/app.py');
