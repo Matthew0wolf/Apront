@@ -41,12 +41,20 @@ def _validate_smtp_config():
     
     if not all([SMTP_SERVER, SMTP_USERNAME, SMTP_PASSWORD]):
         print("[ERRO] Configuracoes SMTP nao encontradas!")
-        print("   Certifique-se de criar um arquivo .env na pasta backend com:")
-        print("   SMTP_SERVER=smtp.gmail.com")
-        print("   SMTP_PORT=587")
-        print("   SMTP_USERNAME=seu_email@gmail.com")
-        print("   SMTP_PASSWORD=sua_senha_de_app")
-        print("   FROM_EMAIL=seu_email@gmail.com")
+        if IS_PRODUCTION:
+            print("   ⚠️  PRODUCAO: Configure as variaveis de ambiente no Railway:")
+            print("      - SMTP_SERVER (ex: smtp.gmail.com)")
+            print("      - SMTP_PORT (ex: 587)")
+            print("      - SMTP_USERNAME (seu email)")
+            print("      - SMTP_PASSWORD (senha de app do Google)")
+            print("      - FROM_EMAIL (seu email)")
+        else:
+            print("   Certifique-se de criar um arquivo .env na pasta backend com:")
+            print("   SMTP_SERVER=smtp.gmail.com")
+            print("   SMTP_PORT=587")
+            print("   SMTP_USERNAME=seu_email@gmail.com")
+            print("   SMTP_PASSWORD=sua_senha_de_app")
+            print("   FROM_EMAIL=seu_email@gmail.com")
         return False
     print("[OK] Configuracoes SMTP validadas!")
     return True
@@ -95,8 +103,16 @@ Equipe Apront
         return False
 
 def send_verification_token_email(to_email, verification_token, user_name):
+    print(f"[EMAIL] ========================================")
+    print(f"[EMAIL] Iniciando envio de email de verificacao")
+    print(f"[EMAIL] Destinatario: {to_email}")
+    print(f"[EMAIL] ========================================")
+    
     if not _validate_smtp_config():
+        print(f"[EMAIL] ❌ Validacao SMTP falhou - abortando envio")
         return False
+    
+    print(f"[EMAIL] ✅ Validacao SMTP passou - prosseguindo com envio")
     
     subject = 'Token de Verificação - Cadastro Apront'
     body = f"""
