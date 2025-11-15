@@ -1,0 +1,23 @@
+# Configurações de Email SMTP
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=matheusdev0998@gmail.com
+SMTP_PASSWORD=qcwv mxid pmpd ixku
+FROM_EMAIL=matheusdev0998@gmail.com
+
+# Banco de Dados PostgreSQL (Docker - nome do serviço)
+DATABASE_URL=postgresql://apront_user:apront_password_2024@postgres:5432/apront_db
+
+# Redis (Docker - nome do serviço)
+REDIS_URL=redis://redis:6379/0
+
+# Segurança (ALTERE ESTAS CHAVES EM PRODUÇÃO!)
+SECRET_KEY=dev-secret-key-change-in-production
+JWT_SECRET_KEY=dev-jwt-secret-change-in-production
+
+# Ambiente - IMPORTANTE: deve ser production no VPS
+FLASK_ENV=production
+
+# Porta
+PORT=5001
+

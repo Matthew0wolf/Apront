@@ -12,22 +12,28 @@ from websocket_server import socketio
 import os
 from dotenv import load_dotenv
 
-# Detecta se está em produção (Railway) ANTES de carregar .env
+# Carrega .env primeiro (sem sobrescrever variáveis já definidas) para detectar FLASK_ENV
+# Isso permite detectar produção no VPS via FLASK_ENV do .env
+load_dotenv(override=False)  # override=False: não sobrescreve variáveis já definidas (ex: docker-compose)
+
+# Detecta se está em produção (Railway ou VPS/Docker)
 IS_PRODUCTION = bool(
     os.getenv('RAILWAY_ENVIRONMENT') or 
     os.getenv('RAILWAY_ENVIRONMENT_NAME') or
     os.getenv('RAILWAY_PROJECT_ID') or 
     os.getenv('RAILWAY_SERVICE_NAME') or
-    os.getenv('RAILWAY_SERVICE_ID')
+    os.getenv('RAILWAY_SERVICE_ID') or
+    os.getenv('FLASK_ENV') == 'production'  # VPS/Docker
 )
 
-# Carregar variáveis de ambiente do arquivo .env APENAS em desenvolvimento local
-# Em produção (Railway), NÃO carrega .env para não sobrescrever variáveis do Railway
-if not IS_PRODUCTION:
-    load_dotenv(override=True)
-    print("📝 Carregando variáveis do arquivo .env (desenvolvimento local)")
+# Log sobre carregamento de .env
+if IS_PRODUCTION:
+    if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID'):
+        print("🚀 Modo produção Railway: variáveis do Railway têm prioridade sobre .env")
+    else:
+        print("📝 Modo produção VPS: usando variáveis do .env e docker-compose")
 else:
-    print("🚀 Modo produção: usando apenas variáveis de ambiente do Railway (ignorando .env)")
+    print("📝 Modo desenvolvimento: usando variáveis do .env")
 
 from routes.team import team_bp
 from routes.rundown import rundown_bp
@@ -58,12 +64,17 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 
 # DEBUG: Mostra informações sobre o ambiente
 if IS_PRODUCTION:
-    print(f"🔍 Ambiente detectado: PRODUÇÃO (Railway)")
-    print(f"   RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT', 'NÃO')}")
-    print(f"   RAILWAY_ENVIRONMENT_NAME: {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'NÃO')}")
-    print(f"   RAILWAY_PROJECT_ID: {os.getenv('RAILWAY_PROJECT_ID', 'NÃO')}")
-    print(f"   RAILWAY_SERVICE_NAME: {os.getenv('RAILWAY_SERVICE_NAME', 'NÃO')}")
-    print(f"   DATABASE_URL do Railway: {'SIM' if DATABASE_URL else 'NÃO'}")
+    # Detecta se é Railway ou VPS
+    if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID'):
+        print(f"🔍 Ambiente detectado: PRODUÇÃO (Railway)")
+        print(f"   RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT', 'NÃO')}")
+        print(f"   RAILWAY_ENVIRONMENT_NAME: {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'NÃO')}")
+        print(f"   RAILWAY_PROJECT_ID: {os.getenv('RAILWAY_PROJECT_ID', 'NÃO')}")
+        print(f"   RAILWAY_SERVICE_NAME: {os.getenv('RAILWAY_SERVICE_NAME', 'NÃO')}")
+    else:
+        print(f"🔍 Ambiente detectado: PRODUÇÃO (VPS/Docker)")
+        print(f"   FLASK_ENV: {os.getenv('FLASK_ENV', 'NÃO')}")
+    print(f"   DATABASE_URL configurada: {'SIM' if DATABASE_URL else 'NÃO'}")
     if DATABASE_URL:
         # Mostra apenas host:port para segurança
         if '@' in DATABASE_URL:
