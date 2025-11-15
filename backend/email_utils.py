@@ -70,7 +70,18 @@ def send_invite_email(to_email, invite_token):
     
     subject = 'Convite para cadastro na plataforma Apront'
     # URL direta para aceitar convite com token preenchido
-    invite_url = f"http://localhost:3000/accept-invite?token={invite_token}"
+    # Detecta ambiente: produção (VPS) ou desenvolvimento
+    if IS_PRODUCTION and not (os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID')):
+        # VPS: usa IP ou domínio configurado
+        base_url = os.getenv('FRONTEND_URL', 'http://72.60.56.28')
+    elif IS_PRODUCTION:
+        # Railway: usa domínio do Railway
+        base_url = os.getenv('FRONTEND_URL', 'https://react-frontend-production-4c4d.up.railway.app')
+    else:
+        # Desenvolvimento local
+        base_url = 'http://localhost:3000'
+    
+    invite_url = f"{base_url}/accept-invite?token={invite_token}"
     
     body = f"""
 Olá!
