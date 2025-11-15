@@ -270,10 +270,12 @@ def check_payment():
 def handle_cors_preflight():
     if request.method == 'OPTIONS':
         response = jsonify({})
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
-        response.headers.add('Access-Control-Max-Age', '600')
+        # Força adicionar headers CORS (usando [] em vez de .add() para sobrescrever)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+        response.headers['Access-Control-Max-Age'] = '600'
+        print(f"🔧 Preflight CORS tratado para: {request.path}")
         return response, 200
 
 # Headers de segurança e CORS
@@ -286,6 +288,7 @@ def add_security_headers(response):
     
     # Força adicionar headers CORS (sobrescreve qualquer valor anterior)
     # SEMPRE usa '*' para garantir compatibilidade máxima
+    # IMPORTANTE: Usar [] em vez de .add() para garantir sobrescrita
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
@@ -293,13 +296,13 @@ def add_security_headers(response):
     # Não usar Access-Control-Allow-Credentials com wildcard (*)
     # response.headers['Access-Control-Allow-Credentials'] = 'true'  # Incompatível com '*'
     
-    # Debug: log dos headers CORS (apenas em desenvolvimento ou se DEBUG estiver ativo)
-    if os.getenv('FLASK_DEBUG', 'False').lower() == 'true' or not IS_PRODUCTION:
-        origin_header = request.headers.get('Origin', 'N/A')
-        print(f"🔧 CORS Headers adicionados:")
-        print(f"   Origin recebido: {origin_header}")
-        print(f"   Access-Control-Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
-        print(f"   Access-Control-Allow-Methods: {response.headers.get('Access-Control-Allow-Methods')}")
+    # Debug: log dos headers CORS (SEMPRE em produção para debug)
+    origin_header = request.headers.get('Origin', 'N/A')
+    print(f"🔧 CORS Headers adicionados para {request.method} {request.path}:")
+    print(f"   Origin recebido: {origin_header}")
+    print(f"   Access-Control-Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
+    print(f"   Access-Control-Allow-Methods: {response.headers.get('Access-Control-Allow-Methods')}")
+    print(f"   Status: {response.status_code}")
     
     # Headers de segurança HTTP (mais permissivos para não bloquear CORS)
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -315,7 +318,12 @@ def add_security_headers(response):
 # Rota de teste na raiz
 @app.route('/')
 def index():
-    return {'message': 'API Flask rodando! Use /api/rundowns para acessar os dados.'}
+    response = jsonify({'message': 'API Flask rodando! Use /api/rundowns para acessar os dados.'})
+    # Garantir headers CORS diretamente na resposta
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    return response
 
 
 
