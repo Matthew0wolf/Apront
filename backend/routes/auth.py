@@ -188,6 +188,7 @@ def verify_token():
         company = Company(
             name=company_name,
             plan_id=starter_plan.id,
+            payment_verified=True,  # Novos cadastros têm acesso liberado por padrão
             created_at=datetime.datetime.utcnow().isoformat()
         )
         db.session.add(company)
