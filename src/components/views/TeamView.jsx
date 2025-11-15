@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import AuthContext from '@/contexts/AuthContext.jsx';
 import { useApi } from '@/hooks/useApi';
+import { API_BASE_URL } from '@/config/api';
 
 const TeamView = ({ currentProject }) => {
   const { toast } = useToast();
@@ -27,7 +28,7 @@ const TeamView = ({ currentProject }) => {
     const fetchTeamData = async () => {
       try {
         console.log('🔑 TeamView: Fazendo requisição...');
-        const response = await apiCall('http://localhost:5001/api/team');
+        const response = await apiCall(`${API_BASE_URL}/api/team`);
         
         console.log('📡 TeamView: Resposta da API:', response.status, response.statusText);
         
@@ -74,7 +75,7 @@ const TeamView = ({ currentProject }) => {
       return;
     }
     try {
-      const res = await fetch('http://localhost:5001/api/admin/invites', {
+      const res = await fetch(`${API_BASE_URL}/api/admin/invites`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -114,7 +115,7 @@ const TeamView = ({ currentProject }) => {
     );
     
     // Persiste no back-end
-    fetch(`http://localhost:5001/api/team/${memberId}`, {
+    fetch(`${API_BASE_URL}/api/team/${memberId}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -147,7 +148,7 @@ const TeamView = ({ currentProject }) => {
     // Descobre o membro pelo nome ou id
     const member = teamMembers.find(m => m.name === memberNameOrId || m.id === memberNameOrId);
     if (!member) return;
-    fetch(`http://localhost:5001/api/team/${member.id}`, {
+    fetch(`${API_BASE_URL}/api/team/${member.id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     })
@@ -256,7 +257,7 @@ const TeamView = ({ currentProject }) => {
                   <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-4">
                       <img
-                        src={member.avatar ? `http://localhost:5001/api/user/avatar/${member.avatar}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random&rounded=true`}
+                        src={member.avatar ? `${API_BASE_URL}/api/user/avatar/${member.avatar}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name)}&background=random&rounded=true`}
                         alt={`Avatar de ${member.name}`}
                         className="w-12 h-12 rounded-full object-cover border-2 border-white/20"
                       />

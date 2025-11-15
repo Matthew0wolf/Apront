@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import AuthContext from '@/contexts/AuthContext.jsx';
 import { ChevronDown, CreditCard, Settings, Users, BarChart3 } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 
 const UserMenu = () => {
   const { user, logout } = useContext(AuthContext);
@@ -20,7 +21,7 @@ const UserMenu = () => {
       if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
     }}>
       <img
-        src={user.avatar ? `http://localhost:5001/api/user/avatar/${user.avatar}?t=${Date.now()}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&rounded=true`}
+        src={user.avatar ? `${API_BASE_URL}/api/user/avatar/${user.avatar}?t=${Date.now()}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&rounded=true`}
         alt="avatar"
         className="w-9 h-9 rounded-full object-cover border border-white/20 shadow"
         onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=random&rounded=true`; }}

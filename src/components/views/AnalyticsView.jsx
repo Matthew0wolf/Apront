@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 
 const AnalyticsView = () => {
   const { token, user } = useContext(AuthContext);
@@ -33,7 +34,7 @@ const AnalyticsView = () => {
     try {
       setLoading(true);
       const endpoint = getAnalyticsEndpoint();
-      const response = await fetch(`http://localhost:5001/api/analytics${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}/api/analytics${endpoint}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       

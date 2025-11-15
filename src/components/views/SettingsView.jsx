@@ -4,6 +4,7 @@ import { Clock, Globe, Bell, Monitor, Save, User, Camera, Lock, Mail, Edit3 } fr
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 
 const SettingsView = () => {
   const { toast } = useToast();
@@ -73,7 +74,7 @@ const SettingsView = () => {
 
   const fetchNotificationPreferences = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/notifications/preferences', {
+      const res = await fetch(`${API_BASE_URL}/api/notifications/preferences`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -87,7 +88,7 @@ const SettingsView = () => {
 
   const saveNotificationPreferences = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/notifications/preferences', {
+      const res = await fetch(`${API_BASE_URL}/api/notifications/preferences`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -113,7 +114,7 @@ const SettingsView = () => {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/user/profile', {
+      const res = await fetch(`${API_BASE_URL}/api/user/profile`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -148,7 +149,7 @@ const SettingsView = () => {
   const handleProfileUpdate = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5001/api/user/profile', {
+      const res = await fetch(`${API_BASE_URL}/api/user/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -201,7 +202,7 @@ const SettingsView = () => {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5001/api/user/password', {
+      const res = await fetch(`${API_BASE_URL}/api/user/password`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -271,7 +272,7 @@ const SettingsView = () => {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const res = await fetch('http://localhost:5001/api/user/avatar', {
+        const res = await fetch(`${API_BASE_URL}/api/user/avatar`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -381,7 +382,7 @@ const SettingsView = () => {
               <div className="flex items-center gap-6">
                 <div className="relative">
                   <img
-                    src={profileData.avatar ? `http://localhost:5001/api/user/avatar/${profileData.avatar}?t=${Date.now()}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name)}&background=random&rounded=true`}
+                    src={profileData.avatar ? `${API_BASE_URL}/api/user/avatar/${profileData.avatar}?t=${Date.now()}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name)}&background=random&rounded=true`}
                     alt="Avatar"
                     className="w-20 h-20 rounded-full object-cover border-2 border-border"
                     onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name)}&background=random&rounded=true`; }}

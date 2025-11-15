@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+import { API_BASE_URL } from '@/config/api';
 
 const AcceptInvitePage = () => {
   const [token, setToken] = useState('');
@@ -24,7 +25,7 @@ const AcceptInvitePage = () => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5001/api/auth/accept-invite', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/accept-invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, name, password })

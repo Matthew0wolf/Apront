@@ -69,7 +69,20 @@ with app.app_context():
             tags=['jornalismo','notícias','diário'],
             duration='1h 15min',
             preview_items=['Abertura (2min)','Manchetes Principais (10min)','Reportagem Especial (15min)','Esportes (8min)','Previsão do Tempo (5min)','Encerramento (3min)'],
-            structure=[]
+            structure=[
+                { 'id': 'folder-1', 'title': 'Abertura', 'type': 'folder', 'children': [
+                    { 'id': 'tj-1-1', 'title': 'Vinheta de Abertura', 'duration': 30, 'description': 'Abertura do jornal', 'type': 'generic', 'status': 'pending', 'icon': 'Play', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'tj-1-2', 'title': 'Manchetes', 'duration': 600, 'description': 'Principais notícias', 'type': 'generic', 'status': 'pending', 'icon': 'Newspaper', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-2', 'title': 'Reportagens', 'type': 'folder', 'children': [
+                    { 'id': 'tj-2-1', 'title': 'Reportagem 1', 'duration': 600, 'description': 'Pauta principal', 'type': 'generic', 'status': 'pending', 'icon': 'Camera', 'color': '#ef4444', 'urgency': 'attention', 'reminder': '' },
+                    { 'id': 'tj-2-2', 'title': 'Esportes', 'duration': 480, 'description': 'Bloco de esportes', 'type': 'generic', 'status': 'pending', 'icon': 'Trophy', 'color': '#f97316', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-3', 'title': 'Encerramento', 'type': 'folder', 'children': [
+                    { 'id': 'tj-3-1', 'title': 'Previsão do Tempo', 'duration': 300, 'description': 'Clima', 'type': 'generic', 'status': 'pending', 'icon': 'CloudSun', 'color': '#10b981', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'tj-3-2', 'title': 'Despedida', 'duration': 180, 'description': 'Fechamento', 'type': 'generic', 'status': 'pending', 'icon': 'LogOut', 'color': '#10b981', 'urgency': 'normal', 'reminder': '' }
+                ]}
+            ]
         )
 
         # Entretenimento - Show musical
@@ -81,7 +94,20 @@ with app.app_context():
             tags=['música','show','entretenimento'],
             duration='2h 45min',
             preview_items=['Soundcheck (30min)','Abertura (10min)','Primeira Música (4min)','Interação com Público (5min)','Segunda Música (4min)','Intervalo (15min)'],
-            structure=[]
+            structure=[
+                { 'id': 'folder-1', 'title': 'Pré-Show', 'type': 'folder', 'children': [
+                    { 'id': 'sm-1-1', 'title': 'Soundcheck', 'duration': 1800, 'description': 'Ajuste de som', 'type': 'generic', 'status': 'pending', 'icon': 'Mic', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-2', 'title': 'Show', 'type': 'folder', 'children': [
+                    { 'id': 'sm-2-1', 'title': 'Abertura', 'duration': 600, 'description': 'Abertura do show', 'type': 'generic', 'status': 'pending', 'icon': 'Play', 'color': '#ef4444', 'urgency': 'attention', 'reminder': '' },
+                    { 'id': 'sm-2-2', 'title': 'Primeira Música', 'duration': 240, 'description': 'Faixa 1', 'type': 'generic', 'status': 'pending', 'icon': 'Music', 'color': '#ef4444', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'sm-2-3', 'title': 'Interação com Público', 'duration': 300, 'description': 'Fala com a plateia', 'type': 'generic', 'status': 'pending', 'icon': 'Users', 'color': '#f97316', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'sm-2-4', 'title': 'Segunda Música', 'duration': 240, 'description': 'Faixa 2', 'type': 'generic', 'status': 'pending', 'icon': 'Music', 'color': '#ef4444', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-3', 'title': 'Intervalo', 'type': 'folder', 'children': [
+                    { 'id': 'sm-3-1', 'title': 'Intervalo', 'duration': 900, 'description': 'Pausa', 'type': 'generic', 'status': 'pending', 'icon': 'Coffee', 'color': '#f97316', 'urgency': 'normal', 'reminder': '' }
+                ]}
+            ]
         )
 
         # Podcast
@@ -93,7 +119,20 @@ with app.app_context():
             tags=['podcast','entrevista','conversa'],
             duration='45min',
             preview_items=['Introdução (3min)','Apresentação do Convidado (5min)','Bloco 1 - Carreira (15min)','Bloco 2 - Projetos (15min)','Perguntas Rápidas (5min)','Encerramento (2min)'],
-            structure=[]
+            structure=[
+                { 'id': 'folder-1', 'title': 'Abertura', 'type': 'folder', 'children': [
+                    { 'id': 'pc-1-1', 'title': 'Introdução', 'duration': 180, 'description': 'Apresentação do podcast', 'type': 'generic', 'status': 'pending', 'icon': 'Mic', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'pc-1-2', 'title': 'Apresentação do Convidado', 'duration': 300, 'description': 'Quem é o convidado', 'type': 'generic', 'status': 'pending', 'icon': 'User', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-2', 'title': 'Entrevista', 'type': 'folder', 'children': [
+                    { 'id': 'pc-2-1', 'title': 'Carreira', 'duration': 900, 'description': 'Perguntas sobre carreira', 'type': 'generic', 'status': 'pending', 'icon': 'Briefcase', 'color': '#f97316', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'pc-2-2', 'title': 'Projetos', 'duration': 900, 'description': 'Projetos atuais', 'type': 'generic', 'status': 'pending', 'icon': 'Folder', 'color': '#10b981', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'pc-2-3', 'title': 'Perguntas Rápidas', 'duration': 300, 'description': 'Ping-pong', 'type': 'generic', 'status': 'pending', 'icon': 'Timer', 'color': '#ef4444', 'urgency': 'attention', 'reminder': '' }
+                ]},
+                { 'id': 'folder-3', 'title': 'Fechamento', 'type': 'folder', 'children': [
+                    { 'id': 'pc-3-1', 'title': 'Considerações Finais', 'duration': 120, 'description': 'Encerramento', 'type': 'generic', 'status': 'pending', 'icon': 'LogOut', 'color': '#10b981', 'urgency': 'normal', 'reminder': '' }
+                ]}
+            ]
         )
 
         # Corporativo
@@ -105,7 +144,20 @@ with app.app_context():
             tags=['corporativo','evento','negócios'],
             duration='4h',
             preview_items=['Credenciamento (30min)','Abertura Oficial (15min)','Palestra Principal (60min)','Coffee Break (30min)','Mesa Redonda (45min)','Networking (60min)'],
-            structure=[]
+            structure=[
+                { 'id': 'folder-1', 'title': 'Recepção', 'type': 'folder', 'children': [
+                    { 'id': 'ec-1-1', 'title': 'Credenciamento', 'duration': 1800, 'description': 'Check-in participantes', 'type': 'generic', 'status': 'pending', 'icon': 'IdCard', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-2', 'title': 'Conteúdo', 'type': 'folder', 'children': [
+                    { 'id': 'ec-2-1', 'title': 'Abertura Oficial', 'duration': 900, 'description': 'Boas-vindas', 'type': 'generic', 'status': 'pending', 'icon': 'Play', 'color': '#3b82f6', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'ec-2-2', 'title': 'Palestra Principal', 'duration': 3600, 'description': 'Keynote', 'type': 'generic', 'status': 'pending', 'icon': 'Presentation', 'color': '#ef4444', 'urgency': 'attention', 'reminder': '' },
+                    { 'id': 'ec-2-3', 'title': 'Mesa Redonda', 'duration': 2700, 'description': 'Debate', 'type': 'generic', 'status': 'pending', 'icon': 'Users', 'color': '#f97316', 'urgency': 'normal', 'reminder': '' }
+                ]},
+                { 'id': 'folder-3', 'title': 'Networking', 'type': 'folder', 'children': [
+                    { 'id': 'ec-3-1', 'title': 'Coffee Break', 'duration': 1800, 'description': 'Intervalo', 'type': 'generic', 'status': 'pending', 'icon': 'Coffee', 'color': '#10b981', 'urgency': 'normal', 'reminder': '' },
+                    { 'id': 'ec-3-2', 'title': 'Networking', 'duration': 3600, 'description': 'Relacionamento', 'type': 'generic', 'status': 'pending', 'icon': 'Handshake', 'color': '#10b981', 'urgency': 'normal', 'reminder': '' }
+                ]}
+            ]
         )
 
         db.session.commit()

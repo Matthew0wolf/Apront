@@ -4,6 +4,7 @@ import { Check, Star, Zap, Crown, CreditCard, Users, FileText, HardDrive } from 
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 
 const PlanCard = ({ plan, isCurrent, isPopular, onSelect, loading }) => {
   const features = plan.features || [];
@@ -112,7 +113,7 @@ const PlansView = () => {
 
   const fetchPlans = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/plans');
+      const res = await fetch(`${API_BASE_URL}/api/plans`);
       const data = await res.json();
       setPlans(data.plans || []);
     } catch (err) {
@@ -126,7 +127,7 @@ const PlansView = () => {
 
   const fetchCurrentPlan = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/plans/usage', {
+      const res = await fetch(`${API_BASE_URL}/api/plans/usage`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -140,7 +141,7 @@ const PlansView = () => {
 
   const fetchUsageStats = async () => {
     try {
-      const res = await fetch('http://localhost:5001/api/plans/usage', {
+      const res = await fetch(`${API_BASE_URL}/api/plans/usage`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -160,7 +161,7 @@ const PlansView = () => {
   const handlePlanChange = async (plan) => {
     setChangingPlan(true);
     try {
-      const res = await fetch('http://localhost:5001/api/plans/change', {
+      const res = await fetch(`${API_BASE_URL}/api/plans/change`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
