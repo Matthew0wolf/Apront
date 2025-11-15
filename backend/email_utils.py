@@ -78,7 +78,10 @@ def send_invite_email(to_email, invite_token):
     print(f"[EMAIL] RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT')}")
     
     # Verifica se há FRONTEND_URL configurado explicitamente
+    # Recarrega .env para garantir que FRONTEND_URL está disponível
+    load_dotenv(dotenv_path=env_path, override=False)
     frontend_url_env = os.getenv('FRONTEND_URL')
+    print(f"[EMAIL] FRONTEND_URL lido do .env: {frontend_url_env}")
     if frontend_url_env:
         base_url = frontend_url_env
         print(f"[EMAIL] Usando FRONTEND_URL do ambiente: {base_url}")
