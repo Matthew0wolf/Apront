@@ -159,6 +159,13 @@ const TemplatesView = () => {
           ? { ...t, downloads: (t.downloads || 0) + 1 }
           : t
       ));
+      
+      // Dispara evento para atualizar lista de rundowns
+      // Isso permite que o RundownContext atualize a lista automaticamente
+      // Usa setTimeout para garantir que o backend processou a criação antes de atualizar
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('rundownListChanged'));
+      }, 500);
 
     } catch (error) {
       toast({
