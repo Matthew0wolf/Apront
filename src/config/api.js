@@ -55,24 +55,32 @@ console.log('🔧 API configurada:', {
 });
 
 // Testa conectividade com o backend
-// Em produção/VPS, usa uma rota específica do backend para evitar conflito com frontend na raiz
+// Em produção/VPS, usa rota pública do backend (através do proxy /api)
 const testUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   ? `${API_BASE_URL}/`  // Em localhost, backend está na raiz
-  : `${API_BASE_URL}/api/rundowns?limit=1`;  // Em produção, usa rota específica do backend
+  : `${API_BASE_URL}/api/auth/login`;  // Em produção, usa rota pública através do proxy
 
-fetch(testUrl)
+fetch(testUrl, { method: 'OPTIONS' })
   .then(res => {
-    console.log('✅ Backend respondeu:', res.status, res.statusText);
+    // OPTIONS retorna 200 se backend está respondendo
+    if (res.status === 200 || res.status === 405) {
+      console.log('✅ Backend respondeu:', res.status, res.statusText);
+      return { message: 'Backend ativo' };
+    }
     return res.json();
   })
   .then(data => {
     console.log('✅ Backend ativo:', data);
   })
   .catch(err => {
-    console.error('❌ ERRO: Não foi possível conectar ao backend!');
-    console.error('❌ URL tentada:', testUrl);
-    console.error('❌ Erro:', err.message);
-    console.error('⚠️ Verifique se o backend está rodando e acessível no IP:', window.location.hostname);
-    console.error('⚠️ Comando para iniciar backend: python backend/app.py');
+    // 401 ou outros erros podem indicar que backend está respondendo
+    if (err.message.includes('401') || err.message.includes('UNAUTHORIZED')) {
+      console.log('✅ Backend está respondendo (401 é esperado para rota protegida)');
+    } else {
+      console.error('❌ ERRO: Não foi possível conectar ao backend!');
+      console.error('❌ URL tentada:', testUrl);
+      console.error('❌ Erro:', err.message);
+      console.error('⚠️ Verifique se o backend está rodando e acessível no IP:', window.location.hostname);
+    }
   });
 

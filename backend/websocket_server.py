@@ -3,21 +3,22 @@ from flask import request
 import json
 import os
 
-# Detecta se está em produção (Railway)
+# Detecta se está em produção (Railway ou VPS/Docker)
 IS_PRODUCTION = bool(
     os.getenv('RAILWAY_ENVIRONMENT') or 
     os.getenv('RAILWAY_ENVIRONMENT_NAME') or
     os.getenv('RAILWAY_PROJECT_ID') or 
     os.getenv('RAILWAY_SERVICE_NAME') or
-    os.getenv('RAILWAY_SERVICE_ID')
+    os.getenv('RAILWAY_SERVICE_ID') or
+    os.getenv('FLASK_ENV') == 'production'  # VPS/Docker
 )
 
 # Configura origens permitidas para CORS do WebSocket
 if IS_PRODUCTION:
-    # Em produção, permite qualquer origem do Railway
-    # O Railway gerencia segurança, então permitir todas as origens é seguro
+    # Em produção (Railway ou VPS), permite qualquer origem
+    # O Nginx/VPS gerencia segurança, então permitir todas as origens é seguro
     cors_allowed_origins = "*"
-    print(f"🔧 WebSocket CORS: Permitindo qualquer origem em produção (Railway)")
+    print(f"🔧 WebSocket CORS: Permitindo qualquer origem em produção")
 else:
     # Em desenvolvimento, lista específica de origens
     cors_allowed_origins = [
