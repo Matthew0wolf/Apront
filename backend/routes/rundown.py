@@ -248,10 +248,22 @@ def update_rundown_status(rundown_id):
 @jwt_required()
 def delete_rundown(rundown_id):
     user = g.current_user
+    print(f"[DELETE] Tentando deletar rundown {rundown_id}")
+    print(f"[DELETE] Usuário: {user.id}, Empresa: {user.company_id}")
+    
     # CRÍTICO: Verificar se rundown pertence à mesma empresa
     rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
+    
     if not rundown:
+        # Verifica se o rundown existe em outra empresa (para debug)
+        other_rundown = Rundown.query.filter_by(id=rundown_id).first()
+        if other_rundown:
+            print(f"[DELETE] Rundown {rundown_id} existe mas pertence à empresa {other_rundown.company_id} (usuário está na empresa {user.company_id})")
+        else:
+            print(f"[DELETE] Rundown {rundown_id} não existe no banco de dados")
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
+    
+    print(f"[DELETE] Rundown encontrado: {rundown.name} (ID: {rundown.id}, Empresa: {rundown.company_id})")
     
     try:
         # Deletar membros do rundown primeiro (cascade deve fazer isso, mas garantimos)

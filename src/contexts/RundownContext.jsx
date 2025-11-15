@@ -341,7 +341,8 @@ export const RundownProvider = ({ children }) => {
   const handleDeleteRundown = async (rundownId) => {
     const rundownToDelete = rundowns.find(r => String(r.id) === String(rundownId));
     if (!rundownToDelete) {
-      // Se não encontrou, pode já ter sido deletado - recarrega lista
+      // Se não encontrou, pode já ter sido deletado - recarrega lista e retorna silenciosamente
+      console.log(`[DELETE] Rundown ${rundownId} não encontrado na lista local, recarregando...`);
       fetchRundowns();
       return;
     }
@@ -353,14 +354,39 @@ export const RundownProvider = ({ children }) => {
       // IDs locais (string) não existem no backend: remove localmente
       if (isNaN(Number(rundownId))) {
         // Já removido acima, apenas limpa localStorage
+        console.log(`[DELETE] Rundown ${rundownId} é ID local, removendo apenas do localStorage`);
       } else {
         const res = await apiCall(`/api/rundowns/${rundownId}`, {
           method: 'DELETE'
         });
+        
         if (!res.ok) {
-          // Se der erro, recarrega lista do servidor para reverter
+          const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+          
+          // Se for 404, o rundown já foi deletado (pode ter sido deletado por outro usuário)
+          // Nesse caso, apenas recarrega a lista e não mostra erro
+          if (res.status === 404) {
+            console.log(`[DELETE] Rundown ${rundownId} já foi deletado (404), recarregando lista...`);
+            fetchRundowns();
+            // Limpa localStorage mesmo assim
+            localStorage.removeItem(`rundownState_${rundownId}`);
+            localStorage.removeItem(`currentItemIndex_${rundownId}`);
+            localStorage.removeItem(`isRunning_${rundownId}`);
+            localStorage.removeItem(`timeElapsed_${rundownId}`);
+            
+            // Se era o rundown ativo, limpa estado
+            if (String(activeRundown?.id) === String(rundownId)) {
+              setActiveRundown(null);
+              setIsTimerRunning(false);
+              setTimeElapsed(0);
+            }
+            return; // Retorna silenciosamente, não mostra erro
+          }
+          
+          // Para outros erros, recarrega lista e mostra erro
+          console.error(`[DELETE] Erro ao deletar rundown ${rundownId}:`, res.status, errorData);
           fetchRundowns();
-          throw new Error('Erro ao deletar rundown');
+          throw new Error(errorData.error || 'Erro ao deletar rundown');
         }
       }
       
@@ -386,12 +412,13 @@ export const RundownProvider = ({ children }) => {
       // Recarrega do servidor para garantir sincronização
       fetchRundowns();
     } catch (err) {
-      // Se der erro, recarrega a lista do servidor para reverter mudança otimista
+      // Se der erro (exceto 404 que já foi tratado), recarrega a lista e mostra erro
+      console.error(`[DELETE] Erro ao deletar rundown ${rundownId}:`, err);
       fetchRundowns();
       toast({
         variant: 'destructive',
         title: 'Erro ao deletar rundown',
-        description: err.message
+        description: err.message || 'Não foi possível deletar o rundown. Tente novamente.'
       });
     }
   };
