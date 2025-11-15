@@ -350,6 +350,9 @@ export const RundownProvider = ({ children }) => {
           method: 'DELETE'
         });
         if (!res.ok) throw new Error('Erro ao deletar rundown');
+        
+        // Remove imediatamente da lista local (otimista)
+        setRundowns(prev => prev.filter(r => r.id !== rundownId));
       }
       localStorage.removeItem(`rundownState_${rundownId}`);
       localStorage.removeItem(`currentItemIndex_${rundownId}`);
@@ -365,8 +368,11 @@ export const RundownProvider = ({ children }) => {
         title: "🗑️ Rundown Deletado!",
         description: `O rundown "${rundownToDelete.name}" foi removido.`,
       });
+      // Recarrega do servidor para garantir sincronização
       fetchRundowns();
     } catch (err) {
+      // Se der erro, recarrega a lista do servidor
+      fetchRundowns();
       toast({
         variant: 'destructive',
         title: 'Erro ao deletar rundown',
