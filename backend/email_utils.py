@@ -105,18 +105,73 @@ Equipe Apront
     msg['To'] = to_email
     msg.set_content(body)
 
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.send_message(msg)
-        print(f"[SUCESSO] E-mail de convite enviado para {to_email}")
-        return True
-    except Exception as e:
-        print(f"[ERRO] Erro ao enviar e-mail de convite: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    # Tenta primeiro com STARTTLS (porta 587), depois com SSL (porta 465)
+    methods = []
+    if SMTP_PORT == 587:
+        methods.append(('STARTTLS', SMTP_SERVER, 587))
+        methods.append(('SSL', SMTP_SERVER, 465))  # Fallback para SSL
+    elif SMTP_PORT == 465:
+        methods.append(('SSL', SMTP_SERVER, 465))
+        methods.append(('STARTTLS', SMTP_SERVER, 587))  # Fallback para STARTTLS
+    else:
+        methods.append(('STARTTLS', SMTP_SERVER, SMTP_PORT))
+        methods.append(('SSL', SMTP_SERVER, 465))  # Fallback para SSL
+
+    for method_name, server_host, server_port in methods:
+        try:
+            print(f"[EMAIL] Tentando conectar ao servidor SMTP {server_host}:{server_port} usando {method_name}...")
+            
+            if method_name == 'SSL':
+                # Usa SMTP_SSL para conexão SSL direta (porta 465)
+                with smtplib.SMTP_SSL(server_host, server_port, timeout=30) as server:
+                    print(f"[EMAIL] Autenticando com usuario: {SMTP_USERNAME}...")
+                    server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                    print(f"[EMAIL] Enviando e-mail de convite para {to_email}...")
+                    server.send_message(msg)
+            else:
+                # Usa SMTP com STARTTLS (porta 587)
+                with smtplib.SMTP(server_host, server_port, timeout=30) as server:
+                    print("[EMAIL] Iniciando TLS...")
+                    server.starttls()
+                    print(f"[EMAIL] Autenticando com usuario: {SMTP_USERNAME}...")
+                    server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                    print(f"[EMAIL] Enviando e-mail de convite para {to_email}...")
+                    server.send_message(msg)
+            
+            print(f"[SUCESSO] E-mail de convite enviado com sucesso para {to_email} usando {method_name}")
+            return True
+            
+        except (OSError, ConnectionError) as e:
+            error_msg = str(e)
+            print(f"[ERRO] Erro de conexao ao tentar {method_name} em {server_host}:{server_port}: {error_msg}")
+            if "Network is unreachable" in error_msg or "Connection refused" in error_msg:
+                print(f"   ⚠️  Tentando metodo alternativo...")
+                continue  # Tenta o próximo método
+            else:
+                import traceback
+                traceback.print_exc()
+                continue  # Tenta o próximo método
+                
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"[ERRO] ERRO DE AUTENTICACAO: Credenciais invalidas")
+            print(f"   Detalhes: {e}")
+            print(f"   Verifique SMTP_USERNAME e SMTP_PASSWORD no .env")
+            import traceback
+            traceback.print_exc()
+            return False  # Não tenta outro método se for erro de autenticação
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ERRO] Erro ao enviar e-mail de convite usando {method_name}: {error_msg}")
+            if "535" in error_msg or "authentication" in error_msg.lower():
+                print(f"   ⚠️  Erro de autenticacao - verifique credenciais SMTP")
+                return False  # Não tenta outro método se for erro de autenticação
+            import traceback
+            traceback.print_exc()
+            continue  # Tenta o próximo método
+    
+    print(f"[ERRO] Falha ao enviar e-mail de convite apos tentar todos os metodos")
+    return False
 
 def send_verification_token_email(to_email, verification_token, user_name):
     print(f"[EMAIL] ========================================")
