@@ -12,8 +12,22 @@ from websocket_server import socketio
 import os
 from dotenv import load_dotenv
 
-# Carregar variáveis de ambiente do arquivo .env (sobrescreve variáveis do sistema)
-load_dotenv(override=True)
+# Detecta se está em produção (Railway) ANTES de carregar .env
+IS_PRODUCTION = bool(
+    os.getenv('RAILWAY_ENVIRONMENT') or 
+    os.getenv('RAILWAY_ENVIRONMENT_NAME') or
+    os.getenv('RAILWAY_PROJECT_ID') or 
+    os.getenv('RAILWAY_SERVICE_NAME') or
+    os.getenv('RAILWAY_SERVICE_ID')
+)
+
+# Carregar variáveis de ambiente do arquivo .env APENAS em desenvolvimento local
+# Em produção (Railway), NÃO carrega .env para não sobrescrever variáveis do Railway
+if not IS_PRODUCTION:
+    load_dotenv(override=True)
+    print("📝 Carregando variáveis do arquivo .env (desenvolvimento local)")
+else:
+    print("🚀 Modo produção: usando apenas variáveis de ambiente do Railway (ignorando .env)")
 
 from routes.team import team_bp
 from routes.rundown import rundown_bp
@@ -37,14 +51,7 @@ app = Flask(__name__)
 # Em produção (Railway/VPS): configure DATABASE_URL nas variáveis de ambiente
 # Em desenvolvimento local: deixe DATABASE_URL vazio para usar SQLite
 
-# Detecta se está em produção (Railway)
-IS_PRODUCTION = bool(
-    os.getenv('RAILWAY_ENVIRONMENT') or 
-    os.getenv('RAILWAY_ENVIRONMENT_NAME') or
-    os.getenv('RAILWAY_PROJECT_ID') or 
-    os.getenv('RAILWAY_SERVICE_NAME') or
-    os.getenv('RAILWAY_SERVICE_ID')
-)
+# IS_PRODUCTION já foi definido acima (antes de carregar .env)
 
 # Railway pode fornecer DATABASE_URL ou variáveis individuais
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -56,6 +63,12 @@ if IS_PRODUCTION:
     print(f"   RAILWAY_ENVIRONMENT_NAME: {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'NÃO')}")
     print(f"   RAILWAY_PROJECT_ID: {os.getenv('RAILWAY_PROJECT_ID', 'NÃO')}")
     print(f"   RAILWAY_SERVICE_NAME: {os.getenv('RAILWAY_SERVICE_NAME', 'NÃO')}")
+    print(f"   DATABASE_URL do Railway: {'SIM' if DATABASE_URL else 'NÃO'}")
+    if DATABASE_URL:
+        # Mostra apenas host:port para segurança
+        if '@' in DATABASE_URL:
+            db_info = DATABASE_URL.split('@')[1].split('/')[0]
+            print(f"   Host do banco: {db_info}")
 else:
     print(f"🔍 Ambiente detectado: DESENVOLVIMENTO LOCAL")
 
