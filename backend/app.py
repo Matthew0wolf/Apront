@@ -280,20 +280,25 @@ def handle_cors_preflight():
 @app.after_request
 def add_security_headers(response):
     """Adiciona headers de segurança HTTP e CORS"""
-    # CORS headers (garantir que sempre estejam presentes)
-    if 'Access-Control-Allow-Origin' not in response.headers:
-        response.headers['Access-Control-Allow-Origin'] = '*'
-    if 'Access-Control-Allow-Methods' not in response.headers:
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
-    if 'Access-Control-Allow-Headers' not in response.headers:
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    # CORS headers (SEMPRE adicionar, mesmo que Flask-CORS já tenha adicionado)
+    # Isso garante que os headers estejam presentes em TODAS as respostas
+    # IMPORTANTE: Não usar credentials com wildcard (*)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Max-Age'] = '600'
+    # Não usar Access-Control-Allow-Credentials com wildcard (*)
+    # response.headers['Access-Control-Allow-Credentials'] = 'true'  # Incompatível com '*'
     
-    # Headers de segurança HTTP
+    # Headers de segurança HTTP (mais permissivos para não bloquear CORS)
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
+    # Removido X-Frame-Options e Content-Security-Policy muito restritivos que podem interferir
+    # response.headers['X-Frame-Options'] = 'DENY'  # Pode interferir com iframes
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    response.headers['Content-Security-Policy'] = "default-src 'self'"
+    # Content-Security-Policy muito restritivo pode bloquear requisições
+    # response.headers['Content-Security-Policy'] = "default-src 'self'"  # Muito restritivo
+    
     return response
 
 # Rota de teste na raiz
