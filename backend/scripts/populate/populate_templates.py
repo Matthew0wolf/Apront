@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+# Adiciona o diretório raiz do backend ao path
+backend_dir = Path(__file__).parent.parent.parent.absolute()
+sys.path.insert(0, str(backend_dir))
+
 from app import app
 from models import db, Template
 import json
