@@ -37,31 +37,86 @@ app = Flask(__name__)
 # Em produção (Railway/VPS): configure DATABASE_URL nas variáveis de ambiente
 # Em desenvolvimento local: deixe DATABASE_URL vazio para usar SQLite
 
+# Detecta se está em produção (Railway)
+IS_PRODUCTION = bool(
+    os.getenv('RAILWAY_ENVIRONMENT') or 
+    os.getenv('RAILWAY_ENVIRONMENT_NAME') or
+    os.getenv('RAILWAY_PROJECT_ID') or 
+    os.getenv('RAILWAY_SERVICE_NAME') or
+    os.getenv('RAILWAY_SERVICE_ID')
+)
+
 # Railway pode fornecer DATABASE_URL ou variáveis individuais
 DATABASE_URL = os.getenv('DATABASE_URL')
 
-# Se não tiver DATABASE_URL, tenta construir a partir de variáveis individuais do Railway
+# DEBUG: Mostra informações sobre o ambiente
+if IS_PRODUCTION:
+    print(f"🔍 Ambiente detectado: PRODUÇÃO (Railway)")
+    print(f"   RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT', 'NÃO')}")
+    print(f"   RAILWAY_ENVIRONMENT_NAME: {os.getenv('RAILWAY_ENVIRONMENT_NAME', 'NÃO')}")
+    print(f"   RAILWAY_PROJECT_ID: {os.getenv('RAILWAY_PROJECT_ID', 'NÃO')}")
+    print(f"   RAILWAY_SERVICE_NAME: {os.getenv('RAILWAY_SERVICE_NAME', 'NÃO')}")
+else:
+    print(f"🔍 Ambiente detectado: DESENVOLVIMENTO LOCAL")
+
+# Se DATABASE_URL contém localhost, SEMPRE rejeita em produção
+# (mesmo que IS_PRODUCTION não detecte, se estiver no Railway, localhost não funciona)
+if DATABASE_URL:
+    if 'localhost' in DATABASE_URL or '127.0.0.1' in DATABASE_URL:
+        if IS_PRODUCTION:
+            print(f"❌ ERRO CRÍTICO: DATABASE_URL contém 'localhost' mas está em produção!")
+            print(f"   Ignorando URL incorreta: {DATABASE_URL[:60]}...")
+            print(f"   Tentando outras fontes...")
+            DATABASE_URL = None  # Força tentar outras fontes
+        else:
+            # Em desenvolvimento local, localhost é OK
+            print(f"ℹ️  Usando localhost (desenvolvimento local)")
+
+# Se não tiver DATABASE_URL válida, tenta construir a partir de variáveis individuais do Railway
 if not DATABASE_URL:
+    print(f"🔍 DATABASE_URL não encontrada, tentando variáveis individuais...")
     pg_host = os.getenv('PGHOST')
     pg_port = os.getenv('PGPORT', '5432')
     pg_user = os.getenv('PGUSER')
     pg_password = os.getenv('PGPASSWORD')
     pg_database = os.getenv('PGDATABASE')
     
+    print(f"   PGHOST: {pg_host or 'NÃO'}")
+    print(f"   PGUSER: {pg_user or 'NÃO'}")
+    print(f"   PGPASSWORD: {'SIM' if pg_password else 'NÃO'}")
+    print(f"   PGDATABASE: {pg_database or 'NÃO'}")
+    
     if all([pg_host, pg_user, pg_password, pg_database]):
         DATABASE_URL = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
         print(f"✅ Construído DATABASE_URL a partir de variáveis individuais do Railway")
+    elif IS_PRODUCTION:
+        # Em produção sem banco configurado, mostra erro claro
+        print(f"")
+        print(f"❌ ERRO CRÍTICO: Não foi possível configurar conexão com banco de dados!")
+        print(f"   Em produção (Railway), você precisa configurar:")
+        print(f"   1. Delete a variável DATABASE_URL se ela contém 'localhost'")
+        print(f"   2. Adicione: DATABASE_URL=${{{{Postgres.DATABASE_URL}}}}")
+        print(f"   (Substitua 'Postgres' pelo nome exato do seu serviço PostgreSQL)")
+        print(f"   3. Ou configure as variáveis: PGHOST, PGUSER, PGPASSWORD, PGDATABASE")
+        print(f"")
+        print(f"   Variáveis encontradas:")
+        print(f"   - DATABASE_URL original: {'SIM' if os.getenv('DATABASE_URL') else 'NÃO'} (mas contém localhost - foi rejeitada)")
+        print(f"   - PGHOST: {pg_host or 'NÃO'}")
+        print(f"   - PGUSER: {pg_user or 'NÃO'}")
+        print(f"   - PGPASSWORD: {'SIM' if pg_password else 'NÃO'}")
+        print(f"   - PGDATABASE: {pg_database or 'NÃO'}")
+        print(f"")
+        print(f"   A aplicação não pode iniciar sem banco de dados em produção!")
+        raise ValueError("DATABASE_URL não configurada corretamente para produção")
 
 if DATABASE_URL:
-    # Verifica se está usando localhost em produção (erro comum)
-    if 'localhost' in DATABASE_URL or '127.0.0.1' in DATABASE_URL:
-        # Em produção (Railway), localhost não funciona
-        # Verifica se está em ambiente de produção
-        if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID'):
-            print(f"⚠️  AVISO: DATABASE_URL contém 'localhost' mas está em produção!")
-            print(f"   Isso não funcionará no Railway.")
-            print(f"   Configure DATABASE_URL=${{{{Postgres.DATABASE_URL}}}} nas variáveis de ambiente do Railway")
-            print(f"   URL atual: {DATABASE_URL[:50]}...")
+    # Verificação final de segurança: NUNCA usar localhost em produção
+    if IS_PRODUCTION and ('localhost' in DATABASE_URL or '127.0.0.1' in DATABASE_URL):
+        print(f"")
+        print(f"❌ ERRO FATAL: Tentando usar localhost em produção!")
+        print(f"   URL rejeitada: {DATABASE_URL[:60]}...")
+        print(f"   Isso não funcionará no Railway!")
+        raise ValueError("DATABASE_URL contém localhost em produção - não permitido!")
     
     # PostgreSQL configurado (produção ou Docker)
     # Mostra apenas host:port/database para segurança
@@ -82,6 +137,10 @@ if DATABASE_URL:
     }
 else:
     # SQLite para desenvolvimento local
+    if IS_PRODUCTION:
+        print("❌ ERRO: Tentando usar SQLite em produção!")
+        print("   Configure DATABASE_URL corretamente no Railway")
+        raise ValueError("SQLite não pode ser usado em produção")
     print("📦 Usando SQLite (desenvolvimento local)")
     sqlite_path = os.path.join(os.path.dirname(__file__), 'rundowns.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{sqlite_path}'

@@ -21,26 +21,33 @@ connection to server at "localhost" (127.0.0.1), port 5433 failed: Connection re
 3. Se não houver, crie:
    - Clique em **"+ New"**
    - Selecione **"Database"** → **"Add PostgreSQL"**
-   - Anote o nome do serviço (ex: `Postgres`)
+   - Anote o nome exato do serviço (ex: `Postgres`, `PostgreSQL`, `db`)
 
-### Passo 2: Configurar Variável de Ambiente Correta
+### Passo 2: DELETAR Variável DATABASE_URL Incorreta
+
+**⚠️ CRÍTICO:** Primeiro, você DEVE deletar a variável incorreta!
 
 1. Vá no serviço **Backend** (não no PostgreSQL)
 2. Clique em **"Variables"**
 3. Procure por `DATABASE_URL`
-4. **Se existir e estiver com `localhost`**, DELETE essa variável
-5. Adicione/Edite `DATABASE_URL` com o valor:
+4. **Se existir e contiver `localhost` ou `127.0.0.1`**, DELETE completamente essa variável
+5. Clique no ícone de lixeira ao lado da variável
+6. Confirme a exclusão
 
-```env
-DATABASE_URL=${{Postgres.DATABASE_URL}}
-```
+### Passo 3: Adicionar Variável Correta
+
+1. Ainda na tela de **Variables** do serviço Backend
+2. Clique em **"+ New Variable"**
+3. Nome: `DATABASE_URL`
+4. Valor: `${{Postgres.DATABASE_URL}}`
 
 **⚠️ IMPORTANTE:** 
-- Substitua `Postgres` pelo nome exato do seu serviço PostgreSQL
-- Use a sintaxe `${{NomeDoServico.DATABASE_URL}}` (com chaves duplas)
+- Substitua `Postgres` pelo **nome exato** do seu serviço PostgreSQL
+- Use a sintaxe `${{NomeDoServico.DATABASE_URL}}` (com chaves duplas `{{}}`)
 - Isso faz o Railway injetar automaticamente a URL correta do banco
+- **NÃO** use valores como `postgresql://...@localhost:5433/...`
 
-### Passo 3: Verificar Outras Variáveis
+### Passo 4: Verificar Outras Variáveis (Opcional)
 
 O Railway também pode fornecer variáveis individuais. Verifique se existem:
 
@@ -50,15 +57,15 @@ O Railway também pode fornecer variáveis individuais. Verifique se existem:
 - `PGPASSWORD`
 - `PGDATABASE`
 
-Se existirem, você pode deletá-las (o código agora constrói a URL automaticamente).
+Se existirem e você configurou `DATABASE_URL` corretamente, você pode deletá-las (o código agora constrói a URL automaticamente).
 
-### Passo 4: Fazer Redeploy
+### Passo 5: Fazer Redeploy
 
 1. Após configurar a variável, o Railway deve fazer redeploy automaticamente
 2. Se não fizer, vá em **"Deployments"** → **"Redeploy"**
 3. Aguarde o deploy completar
 
-### Passo 5: Verificar Logs
+### Passo 6: Verificar Logs
 
 Nos logs, você deve ver:
 ```
