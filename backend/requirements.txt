@@ -3,6 +3,7 @@ flask_sqlalchemy
 flask-socketio
 flask-compress
 flask-cors
+PyJWT
 redis
 python-dotenv
 psycopg2-binary
