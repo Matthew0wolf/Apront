@@ -108,10 +108,14 @@ def delete_company(company_name):
                 print(f"      ✅ Membros de rundowns deletados")
             
             # 5. Deletar rundowns (cascade deleta folders, items, etc)
+            # IMPORTANTE: Deletar individualmente para acionar cascade delete
             if rundowns_count > 0:
                 print(f"   🗑️  Deletando {rundowns_count} rundowns...")
-                Rundown.query.filter_by(company_id=company_id).delete()
-                print(f"      ✅ Rundowns deletados")
+                rundowns_to_delete = Rundown.query.filter_by(company_id=company_id).all()
+                for rundown in rundowns_to_delete:
+                    db.session.delete(rundown)
+                db.session.flush()  # Força o cascade delete antes do commit
+                print(f"      ✅ Rundowns deletados (com cascade)")
             
             # 6. Deletar invites
             if invites_count > 0:
