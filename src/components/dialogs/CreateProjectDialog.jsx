@@ -60,11 +60,12 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
         .then(data => {
           // Salva membros completos (com roles) para identificar owner
           setRundownMembers(data.members || []);
-          // Marca os membros atuais como selecionados (exceto owner que sempre fica)
-          const currentMemberIds = (data.members || [])
-            .filter(m => m.rundown_role !== 'owner') // Owner não precisa estar selecionado
-            .map(m => m.id);
+          // Marca TODOS os membros atuais como selecionados (incluindo owner, mas owner será filtrado na UI)
+          // IMPORTANTE: Todos os membros que já estão no rundown devem aparecer selecionados
+          const currentMemberIds = (data.members || []).map(m => m.id);
           setSelectedMembers(currentMemberIds);
+          console.log('[DIALOG] Membros carregados do rundown:', data.members);
+          console.log('[DIALOG] IDs selecionados:', currentMemberIds);
         })
         .catch(() => {
           setRundownMembers([]);
@@ -82,8 +83,19 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
     }
     
     // Garante que members seja sempre um array
-    const members = Array.isArray(selectedMembers) ? selectedMembers : [];
-    console.log('[DIALOG] Salvando:', { managingTeam, members, projectToEdit });
+    // IMPORTANTE: Remove o owner da lista antes de enviar (o backend sempre mantém o owner)
+    let members = Array.isArray(selectedMembers) ? selectedMembers : [];
+    
+    if (managingTeam && rundownMembers.length > 0) {
+      // Remove o owner da lista de membros a enviar (backend sempre mantém)
+      const owner = rundownMembers.find(m => m.rundown_role === 'owner');
+      if (owner) {
+        members = members.filter(id => id !== owner.id);
+        console.log('[DIALOG] Owner removido da lista de membros a enviar:', owner.id);
+      }
+    }
+    
+    console.log('[DIALOG] Salvando:', { managingTeam, members, selectedMembers, projectToEdit });
     
     onSave({ 
       name: projectName, 
