@@ -171,7 +171,9 @@ app.config['COMPRESS_MIN_SIZE'] = 500  # Só comprime se > 500 bytes
 
 # Inicializar extensões
 db.init_app(app)
+print("🔧 Inicializando CORS...")
 enable_cors(app)
+print("✅ CORS inicializado!")
 Compress(app)  # Habilita compressão gzip automaticamente
 
 # Inicializa o SocketIO com a aplicação Flask
