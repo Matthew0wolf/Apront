@@ -18,12 +18,16 @@ export const RundownProvider = ({ children }) => {
   const { token } = useContext(AuthContext);
   const { apiCall } = useApi();
 
-  const fetchRundowns = useCallback(() => {
+  const fetchRundowns = useCallback((forceRefresh = false) => {
     if (!token) {
       // Sem token, não tenta listar (evita 401 e loops de refresh)
       return;
     }
-    apiCall('/api/rundowns')
+    
+    // Adiciona parâmetro para forçar refresh e ignorar cache
+    const url = forceRefresh ? '/api/rundowns?force_refresh=true' : '/api/rundowns';
+    
+    apiCall(url)
       .then(async (res) => {
         if (!res.ok) {
           // 401 geralmente significa token ausente/expirado
@@ -35,7 +39,13 @@ export const RundownProvider = ({ children }) => {
         return res.json();
       })
       .then(data => {
-        if (data && data.rundowns) setRundowns(data.rundowns);
+        if (data && data.rundowns) {
+          console.log(`📋 Carregados ${data.rundowns.length} rundowns${forceRefresh ? ' (forçado refresh)' : ''}`);
+          setRundowns(data.rundowns);
+        } else {
+          console.warn('⚠️ Nenhum rundown retornado do servidor');
+          setRundowns([]);
+        }
       })
       .catch((err) => {
         console.error('Erro ao buscar rundowns:', err);
@@ -49,7 +59,10 @@ export const RundownProvider = ({ children }) => {
 
   // Recarrega a lista quando houver mudança via WebSocket
   useEffect(() => {
-    const handler = () => fetchRundowns();
+    const handler = () => {
+      console.log('📡 Evento rundownListChanged recebido, recarregando lista...');
+      fetchRundowns(true); // Força refresh ao receber evento WebSocket
+    };
     window.addEventListener('rundownListChanged', handler);
     return () => window.removeEventListener('rundownListChanged', handler);
   }, [fetchRundowns]);
@@ -308,10 +321,12 @@ export const RundownProvider = ({ children }) => {
         description: `O rundown "${payload.name}" foi adicionado com sucesso.`,
       });
       
-      // Aguarda um pouco antes de recarregar para garantir que o backend processou
+      // Força recarregar a lista ignorando cache
+      // Isso garante que o novo rundown apareça imediatamente
+      fetchRundowns(true); // forceRefresh = true
       setTimeout(() => {
-        fetchRundowns();
-      }, 300);
+        fetchRundowns(true); // Força refresh novamente após delay
+      }, 500);
     } catch (err) {
       console.error('Erro ao criar rundown:', err);
       toast({
@@ -433,9 +448,22 @@ export const RundownProvider = ({ children }) => {
   };
 
   const handleDownloadTemplate = async (template) => {
-    await handleCreateRundown({ name: template.name, type: template.category });
-    fetchRundowns();
-    toast({ title: '✅ Importado', description: `${template.name} foi importado para Meus Rundowns.` });
+    try {
+      await handleCreateRundown({ name: template.name, type: template.category });
+      // Força recarregar a lista após importar (ignorando cache)
+      fetchRundowns(true); // forceRefresh = true
+      setTimeout(() => {
+        fetchRundowns(true); // Força refresh novamente após delay
+      }, 500);
+      toast({ title: '✅ Importado', description: `${template.name} foi importado para Meus Rundowns.` });
+    } catch (err) {
+      console.error('Erro ao importar template:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao importar template',
+        description: err.message || 'Não foi possível importar o template.'
+      });
+    }
   };
 
   const handleUpdateRundownMembers = async (rundownId, members) => {

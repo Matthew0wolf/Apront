@@ -177,6 +177,11 @@ def import_template(template_id):
     t.downloads = (t.downloads or 0) + 1
     db.session.commit()
 
+    # CRÍTICO: Invalidar cache de TODOS os usuários da empresa
+    # Isso garante que todos vejam o novo rundown importado imediatamente
+    from cache_utils import invalidate_company_cache
+    invalidate_company_cache(g.current_user.company_id)
+
     # Notifica lista alterada para todos os usuários da empresa
     try:
         broadcast_rundown_list_changed(company_id=g.current_user.company_id)

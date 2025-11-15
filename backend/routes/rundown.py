@@ -20,10 +20,15 @@ def get_rundowns():
         return jsonify({'error': 'Usuário sem empresa associada'}), 403
     
     # Tentar obter do cache (se usuário específico)
-    if user:
+    # NOTA: Cache pode estar desatualizado após criar/importar rundowns
+    # Por isso, sempre verificamos se há parâmetro ?force_refresh=true para ignorar cache
+    force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+    
+    if user and not force_refresh:
         cache_key = f"rundowns:user:{user.id}:company:{user.company_id}"
         cached_data = get_cache(cache_key)
         if cached_data:
+            print(f"[CACHE] Retornando {len(cached_data)} rundowns do cache para usuário {user.id}")
             return {'rundowns': cached_data}
     
     # SEMPRE filtrar por company_id primeiro (segurança crítica)
@@ -138,6 +143,10 @@ def create_rundown():
     
     # Loga o uso
     log_usage(g.current_user.company_id, g.current_user.id, 'create_rundown', 'rundown', rundown.id, {'name': rundown.name})
+    
+    # CRÍTICO: Invalidar cache de TODOS os usuários da empresa
+    # Isso garante que todos vejam o novo rundown imediatamente
+    invalidate_company_cache(g.current_user.company_id)
     
     try:
         broadcast_rundown_list_changed(company_id=g.current_user.company_id)

@@ -25,8 +25,12 @@ const ProjectsView = () => {
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
   const [projectToManage, setProjectToManage] = useState(null);
 
-  const filteredProjects = rundowns.filter(project => {
-    const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase());
+  // Garante que rundowns seja sempre um array válido
+  const safeRundowns = Array.isArray(rundowns) ? rundowns : [];
+  
+  const filteredProjects = safeRundowns.filter(project => {
+    if (!project || typeof project !== 'object') return false;
+    const matchesSearch = project.name?.toLowerCase().includes(searchTerm.toLowerCase()) ?? true;
     const matchesType = filterType === 'all' || project.type?.toLowerCase() === filterType.toLowerCase();
     return matchesSearch && matchesType;
   });
@@ -213,15 +217,21 @@ const ProjectsView = () => {
                       <span>Pastas do Projeto:</span>
                     </div>
                     <div className="space-y-1.5 text-sm">
-                      {project.folders?.slice(0, 3).map((folder, i) => (
-                        <div key={i} className="flex items-center justify-between">
-                          <span className="text-foreground">{folder.name || `Pré-Jogo`}</span>
-                          <span className="text-muted-foreground">20:00</span>
-                        </div>
-                      ))}
-                      {project.folders?.length > 3 && (
-                        <div className="text-muted-foreground">
-                          +{project.folders.length - 3} mais...
+                      {Array.isArray(project.items) && project.items.length > 0 ? (
+                        project.items.slice(0, 3).map((folder, i) => (
+                          <div key={folder.id || i} className="flex items-center justify-between">
+                            <span className="text-foreground">{folder.title || `Pasta ${i + 1}`}</span>
+                            <span className="text-muted-foreground">
+                              {folder.children?.length || 0} itens
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-muted-foreground text-sm">Nenhum item ainda</div>
+                      )}
+                      {Array.isArray(project.items) && project.items.length > 3 && (
+                        <div className="text-muted-foreground text-sm">
+                          +{project.items.length - 3} mais...
                         </div>
                       )}
                     </div>
