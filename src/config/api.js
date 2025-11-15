@@ -27,8 +27,35 @@ const getApiUrl = () => {
     return `https://${window.location.hostname.replace(/^[^.]+/, 'backend')}`;
   }
   
+  // Detecta se é IP numérico (VPS) ou domínio de produção
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  
+  // Verifica se é um IP numérico (ex: 72.60.56.28) ou domínio de produção
+  const isIP = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+  const isProductionDomain = !hostname.includes('localhost') && 
+                             !hostname.includes('127.0.0.1') && 
+                             !hostname.includes('192.168.') &&
+                             !hostname.includes('10.0.') &&
+                             !hostname.includes('172.16.');
+  
+  // Se for IP (VPS) ou domínio de produção, usa o mesmo host (Nginx faz proxy)
+  if (isIP || isProductionDomain) {
+    const apiUrl = `${protocol}//${hostname}${window.location.port ? ':' + window.location.port : ''}`;
+    console.log('🌐 Detectado acesso em produção/VPS:', hostname, '-> Backend via Nginx:', apiUrl);
+    console.log('🔧 window.location:', {
+      hostname: hostname,
+      protocol: window.location.protocol,
+      port: window.location.port,
+      href: window.location.href,
+      isIP: isIP,
+      isProductionDomain: isProductionDomain
+    });
+    return apiUrl;
+  }
+  
   // Se estiver rodando em localhost, verifica se há URL de desenvolvimento configurada
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
     // Permite configurar URL do backend para desenvolvimento via variável de ambiente
     // Útil quando backend está em VPS mas frontend roda localmente
     if (import.meta.env.VITE_API_BASE_URL_DEV) {
@@ -42,22 +69,9 @@ const getApiUrl = () => {
     return 'http://localhost:5001';
   }
   
-  // Se estiver rodando em produção/VPS (não localhost), usa o mesmo domínio
-  // O Nginx faz proxy para o backend na porta 5001
-  // Isso permite que WebSocket funcione através do Nginx
-  // Detecta se é IP (números) ou domínio
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const hostname = window.location.hostname;
-  
-  // Se for um IP (VPS) ou domínio de produção, usa o mesmo host
+  // Fallback: usa o mesmo host
   const apiUrl = `${protocol}//${hostname}${window.location.port ? ':' + window.location.port : ''}`;
-  console.log('🌐 Detectado acesso em produção/VPS:', hostname, '-> Backend via Nginx:', apiUrl);
-  console.log('🔧 window.location:', {
-    hostname: hostname,
-    protocol: window.location.protocol,
-    port: window.location.port,
-    href: window.location.href
-  });
+  console.log('🌐 Fallback: usando mesmo host:', apiUrl);
   return apiUrl;
 };
 
