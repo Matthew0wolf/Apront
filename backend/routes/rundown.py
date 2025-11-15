@@ -29,9 +29,14 @@ def get_rundowns():
     # SEMPRE filtrar por company_id primeiro (segurança crítica)
     base_query = Rundown.query.filter_by(company_id=user.company_id)
     
-    # Todos os usuários da empresa veem todos os rundowns da empresa
-    # (Isolamento por empresa já garante segurança)
-    rundowns = base_query.all()
+    # CRÍTICO: Filtrar apenas rundowns onde o usuário é membro
+    # Isso garante que apenas usuários com acesso vejam os rundowns
+    member_rundown_ids = [rm.rundown_id for rm in RundownMember.query.filter_by(user_id=user.id).all()]
+    if member_rundown_ids:
+        rundowns = base_query.filter(Rundown.id.in_(member_rundown_ids)).all()
+    else:
+        # Se não for membro de nenhum rundown, retorna lista vazia
+        rundowns = []
     
     result = []
     for r in rundowns:
@@ -108,14 +113,26 @@ def create_rundown():
     db.session.add(rundown)
     db.session.flush()
     
-    # Atribui membros: sempre inclui o criador
+    # Atribui membros: sempre inclui o criador como owner
     creator_id = g.current_user.id
     db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
     
+    # Se membros foram especificados, adiciona apenas eles
+    # Caso contrário, adiciona todos os usuários da empresa (comportamento padrão)
     members = data.get('members', [])  # lista de user_ids
-    for uid in members:
-        if uid != creator_id:
-            db.session.add(RundownMember(rundown_id=rundown.id, user_id=uid))
+    
+    if members:
+        # Adiciona apenas os membros especificados
+        for uid in members:
+            if uid != creator_id:
+                db.session.add(RundownMember(rundown_id=rundown.id, user_id=uid))
+    else:
+        # Comportamento padrão: adiciona todos os usuários da empresa
+        from models import User
+        company_users = User.query.filter_by(company_id=g.current_user.company_id).all()
+        for company_user in company_users:
+            if company_user.id != creator_id:
+                db.session.add(RundownMember(rundown_id=rundown.id, user_id=company_user.id, role='member'))
     
     db.session.commit()
     
@@ -294,6 +311,39 @@ def delete_rundown(rundown_id):
         traceback.print_exc()
         return jsonify({'error': f'Erro ao deletar rundown: {str(e)}'}), 500
 
+
+# Obter membros do rundown
+@rundown_bp.route('/<int:rundown_id>/members', methods=['GET'])
+@jwt_required()
+def get_rundown_members(rundown_id):
+    user = g.current_user
+    # CRÍTICO: Verificar se rundown pertence à mesma empresa
+    rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
+    if not rundown:
+        return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
+    
+    # Verificar se usuário é membro ou admin
+    if user.role.value != 'admin':
+        is_member = RundownMember.query.filter_by(rundown_id=rundown_id, user_id=user.id).first() is not None
+        if not is_member:
+            return jsonify({'error': 'Permissão insuficiente'}), 403
+    
+    # Obter todos os membros do rundown
+    members = RundownMember.query.filter_by(rundown_id=rundown_id).all()
+    from models import User
+    result = []
+    for m in members:
+        member_user = User.query.get(m.user_id)
+        if member_user:
+            result.append({
+                'id': member_user.id,
+                'name': member_user.name,
+                'email': member_user.email,
+                'role': member_user.role.value,
+                'rundown_role': m.role or 'member'
+            })
+    
+    return jsonify({'members': result})
 
 # Atualizar membros do rundown
 @rundown_bp.route('/<int:rundown_id>/members', methods=['PATCH'])

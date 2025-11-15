@@ -16,13 +16,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const ProjectsView = () => {
-  const { rundowns, handleCreateRundown, handleDeleteRundown, loadRundownState, isRunning, activeRundown } = useRundown();
+  const { rundowns, handleCreateRundown, handleDeleteRundown, handleUpdateRundownMembers, loadRundownState, isRunning, activeRundown } = useRundown();
   const { toast } = useToast();
   const navigate = useNavigate();
   const { token } = useContext(AuthContext);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
+  const [projectToManage, setProjectToManage] = useState(null);
 
   const filteredProjects = rundowns.filter(project => {
     const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -158,6 +159,13 @@ const ProjectsView = () => {
                         <DropdownMenuItem onClick={() => handleSelectProject(project)}>
                           <Play className="w-4 h-4 mr-2" />
                           Abrir Projeto
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          setProjectToManage({ ...project, manageTeam: true });
+                          setCreateDialogOpen(true);
+                        }}>
+                          <Users className="w-4 h-4 mr-2" />
+                          Gerenciar Equipe
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleDelete(project.id)} className="text-red-600">
                           Excluir
@@ -296,10 +304,21 @@ const ProjectsView = () => {
       {/* Dialog Criar/Editar Projeto */}
       <CreateProjectDialog
         isOpen={isCreateDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
+        onOpenChange={(open) => {
+          setCreateDialogOpen(open);
+          if (!open) setProjectToManage(null);
+        }}
+        projectToEdit={projectToManage}
         onSave={(data) => {
-          handleCreateRundown(data);
+          if (projectToManage?.manageTeam) {
+            // Atualizar membros do rundown
+            handleUpdateRundownMembers(projectToManage.id, data.members || []);
+          } else {
+            // Criar novo rundown
+            handleCreateRundown(data);
+          }
           setCreateDialogOpen(false);
+          setProjectToManage(null);
         }}
       />
     </div>

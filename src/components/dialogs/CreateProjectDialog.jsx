@@ -39,18 +39,37 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
   // Carrega membros da equipe para seleção
   useEffect(() => {
     if (!isOpen || !token) return;
+    
+    // Carrega lista de membros da empresa
     apiCall('/api/team')
       .then(res => res.ok ? res.json() : { team: [] })
       .then(data => setTeam(data.team || []))
       .catch(() => setTeam([]));
-  }, [isOpen, token, apiCall]);
+    
+    // Se estiver gerenciando equipe, carrega membros atuais do rundown
+    if (managingTeam && projectToEdit?.id) {
+      apiCall(`/api/rundowns/${projectToEdit.id}/members`)
+        .then(res => res.ok ? res.json() : { members: [] })
+        .then(data => {
+          // Marca os membros atuais como selecionados
+          const currentMemberIds = (data.members || []).map(m => m.id);
+          setSelectedMembers(currentMemberIds);
+        })
+        .catch(() => setSelectedMembers([]));
+    }
+  }, [isOpen, token, apiCall, managingTeam, projectToEdit]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!managingTeam && !projectName.trim()) {
       return;
     }
-    onSave({ name: projectName, type: projectType, members: selectedMembers });
+    // Garante que members seja sempre um array
+    onSave({ 
+      name: projectName, 
+      type: projectType, 
+      members: Array.isArray(selectedMembers) ? selectedMembers : [] 
+    });
     onOpenChange(false);
   };
 

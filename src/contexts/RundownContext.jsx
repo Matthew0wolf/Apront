@@ -298,17 +298,26 @@ export const RundownProvider = ({ children }) => {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error('Erro ao criar rundown');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+        throw new Error(errorData.error || 'Erro ao criar rundown');
+      }
+      
       toast({
         title: "🎉 Rundown Criado!",
         description: `O rundown "${payload.name}" foi adicionado com sucesso.`,
       });
-      fetchRundowns();
+      
+      // Aguarda um pouco antes de recarregar para garantir que o backend processou
+      setTimeout(() => {
+        fetchRundowns();
+      }, 300);
     } catch (err) {
+      console.error('Erro ao criar rundown:', err);
       toast({
         variant: 'destructive',
         title: 'Erro ao criar rundown',
-        description: err.message
+        description: err.message || 'Não foi possível criar o rundown. Tente novamente.'
       });
     }
   };
@@ -429,6 +438,34 @@ export const RundownProvider = ({ children }) => {
     toast({ title: '✅ Importado', description: `${template.name} foi importado para Meus Rundowns.` });
   };
 
+  const handleUpdateRundownMembers = async (rundownId, members) => {
+    try {
+      const res = await apiCall(`/api/rundowns/${rundownId}/members`, {
+        method: 'PATCH',
+        body: JSON.stringify({ members })
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+        throw new Error(errorData.error || 'Erro ao atualizar membros');
+      }
+      
+      toast({
+        title: "✅ Equipe Atualizada!",
+        description: "Os membros do rundown foram atualizados com sucesso.",
+      });
+      
+      // Recarrega a lista para refletir as mudanças
+      fetchRundowns();
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Erro ao atualizar membros',
+        description: err.message || 'Não foi possível atualizar os membros do rundown.'
+      });
+    }
+  };
+
   // Funções de sincronização - agora usam o SyncContext real
   const syncRundownUpdateLocal = useCallback((rundownId, changes) => {
     console.log('🔄 Sincronizando mudanças:', { rundownId, changes });
@@ -464,6 +501,7 @@ export const RundownProvider = ({ children }) => {
     handleCreateRundown,
     handleUpdateRundown,
     handleDeleteRundown,
+    handleUpdateRundownMembers,
     handleDownloadTemplate,
     calculateElapsedTimeForIndex,
     syncRundownUpdate: syncRundownUpdateLocal,
