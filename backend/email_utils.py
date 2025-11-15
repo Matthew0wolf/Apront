@@ -71,17 +71,32 @@ def send_invite_email(to_email, invite_token):
     subject = 'Convite para cadastro na plataforma Apront'
     # URL direta para aceitar convite com token preenchido
     # Detecta ambiente: produção (VPS) ou desenvolvimento
-    if IS_PRODUCTION and not (os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID')):
+    
+    # Debug: mostra detecção de ambiente
+    print(f"[EMAIL] IS_PRODUCTION: {IS_PRODUCTION}")
+    print(f"[EMAIL] FLASK_ENV: {os.getenv('FLASK_ENV')}")
+    print(f"[EMAIL] RAILWAY_ENVIRONMENT: {os.getenv('RAILWAY_ENVIRONMENT')}")
+    
+    # Verifica se há FRONTEND_URL configurado explicitamente
+    frontend_url_env = os.getenv('FRONTEND_URL')
+    if frontend_url_env:
+        base_url = frontend_url_env
+        print(f"[EMAIL] Usando FRONTEND_URL do ambiente: {base_url}")
+    elif IS_PRODUCTION and not (os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID')):
         # VPS: usa IP ou domínio configurado
-        base_url = os.getenv('FRONTEND_URL', 'http://72.60.56.28')
+        base_url = 'http://72.60.56.28'
+        print(f"[EMAIL] Ambiente VPS detectado, usando: {base_url}")
     elif IS_PRODUCTION:
         # Railway: usa domínio do Railway
-        base_url = os.getenv('FRONTEND_URL', 'https://react-frontend-production-4c4d.up.railway.app')
+        base_url = 'https://react-frontend-production-4c4d.up.railway.app'
+        print(f"[EMAIL] Ambiente Railway detectado, usando: {base_url}")
     else:
         # Desenvolvimento local
         base_url = 'http://localhost:3000'
+        print(f"[EMAIL] Ambiente desenvolvimento detectado, usando: {base_url}")
     
     invite_url = f"{base_url}/accept-invite?token={invite_token}"
+    print(f"[EMAIL] URL do convite gerada: {invite_url}")
     
     body = f"""
 Olá!

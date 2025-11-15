@@ -27,9 +27,18 @@ const getApiUrl = () => {
     return `https://${window.location.hostname.replace(/^[^.]+/, 'backend')}`;
   }
   
-  // Se estiver rodando em localhost, usa localhost:5001
+  // Se estiver rodando em localhost, verifica se há URL de desenvolvimento configurada
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    console.log('🏠 Detectado acesso local, usando localhost:5001');
+    // Permite configurar URL do backend para desenvolvimento via variável de ambiente
+    // Útil quando backend está em VPS mas frontend roda localmente
+    if (import.meta.env.VITE_API_BASE_URL_DEV) {
+      const devUrl = import.meta.env.VITE_API_BASE_URL_DEV;
+      console.log('🏠 Desenvolvimento local detectado, usando backend configurado:', devUrl);
+      return devUrl;
+    }
+    // Se não tiver configuração, tenta localhost:5001 (backend local)
+    console.log('🏠 Detectado acesso local, usando localhost:5001 (backend local)');
+    console.log('💡 Dica: Se backend está na VPS, configure VITE_API_BASE_URL_DEV=http://72.60.56.28 no .env');
     return 'http://localhost:5001';
   }
   
