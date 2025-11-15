@@ -42,8 +42,14 @@ const RegisterPage = () => {
       setStep(2);
       setSuccess(true);
     } catch (err) {
-      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
-        setError('Não foi possível conectar ao servidor. Verifique se o backend está rodando em ' + API_BASE_URL);
+      console.error('❌ Erro no cadastro inicial:', err);
+      if (err.message === 'Failed to fetch' || err.message.includes('fetch') || err.message.includes('NetworkError')) {
+        const errorMsg = `Não foi possível conectar ao servidor em ${API_BASE_URL}. ` +
+          `Verifique: 1) Backend está rodando, 2) CORS está configurado, 3) URL está correta. ` +
+          `Erro: ${err.message}`;
+        setError(errorMsg);
+        console.error('❌ URL tentada:', `${API_BASE_URL}/api/auth/register`);
+        console.error('❌ Erro completo:', err);
       } else {
         setError(err.message);
       }
@@ -78,8 +84,14 @@ const RegisterPage = () => {
       setSuccess(true);
       setTimeout(() => navigate('/login'), 1500);
     } catch (err) {
-      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
-        setError('Não foi possível conectar ao servidor. Verifique se o backend está rodando em ' + API_BASE_URL);
+      console.error('❌ Erro na verificação de token:', err);
+      if (err.message === 'Failed to fetch' || err.message.includes('fetch') || err.message.includes('NetworkError')) {
+        const errorMsg = `Não foi possível conectar ao servidor em ${API_BASE_URL}. ` +
+          `Verifique: 1) Backend está rodando, 2) CORS está configurado, 3) URL está correta. ` +
+          `Erro: ${err.message}`;
+        setError(errorMsg);
+        console.error('❌ URL tentada:', `${API_BASE_URL}/api/auth/verify-token`);
+        console.error('❌ Erro completo:', err);
       } else {
         setError(err.message);
       }

@@ -7,24 +7,23 @@ def enable_cors(app):
     # Isso resolve problemas quando o IP muda ou quando acessa de outro dispositivo
     import os
     
-    # Em desenvolvimento, permite qualquer origem para facilitar testes
-    # Em produção, deve-se restringir aos domínios específicos
-    is_production = os.getenv('FLASK_ENV') == 'production'
+    # Detecta se está em produção (mesma lógica do app.py)
+    is_production = bool(
+        os.getenv('RAILWAY_ENVIRONMENT') or 
+        os.getenv('RAILWAY_ENVIRONMENT_NAME') or
+        os.getenv('RAILWAY_PROJECT_ID') or 
+        os.getenv('RAILWAY_SERVICE_NAME') or
+        os.getenv('RAILWAY_SERVICE_ID') or
+        os.getenv('FLASK_ENV') == 'production'
+    )
     
-    if is_production:
-        # Em produção, lista específica de origens permitidas
-        # Pode ser configurado via variável de ambiente CORS_ORIGINS (separado por vírgula)
-        cors_env = os.getenv('CORS_ORIGINS', '')
-        if cors_env:
-            allowed_origins = [origin.strip() for origin in cors_env.split(',') if origin.strip()]
-        else:
-            allowed_origins = [
-                "https://seu-dominio.com",
-                # Adicione aqui os domínios de produção
-            ]
-    else:
-        # Em desenvolvimento, permite qualquer origem (mais permissivo)
-        allowed_origins = "*"
+    # SEMPRE permite qualquer origem (Railway gerencia segurança)
+    # Isso resolve problemas de CORS em produção
+    allowed_origins = "*"
+    
+    print(f"🔧 Configurando CORS:")
+    print(f"   Ambiente: {'PRODUÇÃO' if is_production else 'DESENVOLVIMENTO'}")
+    print(f"   Origens permitidas: {allowed_origins}")
     
     # Configuração CORS mais explícita para garantir funcionamento
     cors_config = {
@@ -36,8 +35,11 @@ def enable_cors(app):
         "max_age": 600,
     }
     
+    # Aplica CORS globalmente para TODAS as rotas
     CORS(
         app,
         resources={r"/*": cors_config},
         **cors_config  # Aplica também globalmente
     )
+    
+    print(f"✅ CORS configurado com sucesso!")

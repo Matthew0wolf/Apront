@@ -10,12 +10,19 @@ const getApiUrl = () => {
   }
   
   // Fallback: detecta automaticamente se estiver em plataformas conhecidas
-  if (window.location.hostname.includes('railway.app') || 
-      window.location.hostname.includes('vercel.app') ||
+  if (window.location.hostname.includes('railway.app')) {
+    // Se não tiver VITE_API_BASE_URL configurado, usa a URL conhecida do backend
+    // (não recomendado para produção, mas útil para testes rápidos)
+    console.warn('⚠️ VITE_API_BASE_URL não configurado. Usando URL padrão do backend.');
+    console.warn('⚠️ Configure a variável VITE_API_BASE_URL no Railway para produção!');
+    // URL padrão do backend no Railway
+    return 'https://apront-production.up.railway.app';
+  }
+  
+  if (window.location.hostname.includes('vercel.app') ||
       window.location.hostname.includes('netlify.app') ||
       window.location.hostname.includes('render.com')) {
-    // Se não tiver VITE_API_BASE_URL configurado, tenta inferir do hostname
-    // (não recomendado para produção, mas útil para testes rápidos)
+    // Para outras plataformas, tenta inferir do hostname
     console.warn('⚠️ VITE_API_BASE_URL não configurado. Configure a variável de ambiente no build.');
     return `https://${window.location.hostname.replace(/^[^.]+/, 'backend')}`;
   }
