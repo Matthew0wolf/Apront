@@ -257,15 +257,23 @@ const OperatorView = () => {
   }, [rundown]); // Removido globalDragRef das dependências para evitar loop, mas o efeito é o mesmo. O uso de globalDragRef no if já garante o comportamento.
 
   useEffect(() => {
-    if (!rundown || rundown.id !== projectId) {
-      console.log('🔗 OperatorView: Carregando rundown:', projectId);
-      const rundownData = loadRundownState(projectId);
-      console.log('🔗 OperatorView: Rundown carregado:', rundownData?.name);
-      if (!rundownData) {
-        toast({ variant: "destructive", title: "Erro", description: "Rundown não encontrado." });
-        navigate(`/project/${projectId}/select-role`);
+    const loadRundown = async () => {
+      if (!rundown || String(rundown.id) !== String(projectId)) {
+        console.log('🔗 OperatorView: Carregando rundown:', projectId);
+        const rundownData = await loadRundownState(projectId);
+        console.log('🔗 OperatorView: Rundown carregado:', rundownData?.name);
+        if (!rundownData) {
+          // Aguarda um pouco mais antes de redirecionar (pode estar carregando)
+          setTimeout(() => {
+            if (!rundown || String(rundown.id) !== String(projectId)) {
+              toast({ variant: "destructive", title: "Erro", description: "Rundown não encontrado. Tente recarregar a página." });
+              navigate(`/project/${projectId}/select-role`);
+            }
+          }, 1000);
+        }
       }
-    }
+    };
+    loadRundown();
   }, [projectId, rundown, loadRundownState, navigate, toast]);
 
   // Conecta ao rundown via WebSocket quando o componente monta

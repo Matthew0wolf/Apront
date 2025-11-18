@@ -18,39 +18,39 @@ export const RundownProvider = ({ children }) => {
   const { token } = useContext(AuthContext);
   const { apiCall } = useApi();
 
-  const fetchRundowns = useCallback((forceRefresh = false) => {
+  const fetchRundowns = useCallback(async (forceRefresh = false) => {
     if (!token) {
       // Sem token, não tenta listar (evita 401 e loops de refresh)
-      return;
+      return Promise.resolve([]);
     }
     
     // Adiciona parâmetro para forçar refresh e ignorar cache
     const url = forceRefresh ? '/api/rundowns?force_refresh=true' : '/api/rundowns';
     
-    apiCall(url)
-      .then(async (res) => {
-        if (!res.ok) {
-          // 401 geralmente significa token ausente/expirado
-          const txt = await res.text().catch(() => '');
-          console.warn('Falha ao listar rundowns:', res.status, txt);
-          setRundowns([]);
-          return;
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (data && data.rundowns) {
-          console.log(`📋 Carregados ${data.rundowns.length} rundowns${forceRefresh ? ' (forçado refresh)' : ''}`);
-          setRundowns(data.rundowns);
-        } else {
-          console.warn('⚠️ Nenhum rundown retornado do servidor');
-          setRundowns([]);
-        }
-      })
-      .catch((err) => {
-        console.error('Erro ao buscar rundowns:', err);
+    try {
+      const res = await apiCall(url);
+      if (!res.ok) {
+        // 401 geralmente significa token ausente/expirado
+        const txt = await res.text().catch(() => '');
+        console.warn('Falha ao listar rundowns:', res.status, txt);
         setRundowns([]);
-      });
+        return [];
+      }
+      const data = await res.json();
+      if (data && data.rundowns) {
+        console.log(`📋 Carregados ${data.rundowns.length} rundowns${forceRefresh ? ' (forçado refresh)' : ''}`);
+        setRundowns(data.rundowns);
+        return data.rundowns;
+      } else {
+        console.warn('⚠️ Nenhum rundown retornado do servidor');
+        setRundowns([]);
+        return [];
+      }
+    } catch (err) {
+      console.error('Erro ao buscar rundowns:', err);
+      setRundowns([]);
+      return [];
+    }
   }, [apiCall, token]);
 
   useEffect(() => {
@@ -232,27 +232,32 @@ export const RundownProvider = ({ children }) => {
     }
   }, [handleSetCurrentItem, toast, setIsTimerRunning]);
 
-  const loadRundownState = useCallback((rundownId) => {
+  const loadRundownState = useCallback(async (rundownId) => {
     // Converte rundownId para string para comparação
     const rundownIdStr = String(rundownId);
     console.log('🔄 loadRundownState: Carregando rundown:', rundownIdStr);
     console.log('🔄 loadRundownState: Rundowns disponíveis:', rundowns.map(r => ({ id: String(r.id), name: r.name })));
     
-    // Se não houver rundowns carregados ainda, tenta recarregar
-    if (rundowns.length === 0) {
-      console.warn('⚠️ loadRundownState: Nenhum rundown carregado ainda, tentando recarregar...');
-      fetchRundowns();
-      return null;
-    }
-    
     // Busca o rundown correto (compara como string)
-    const rundownData = rundowns.find(p => String(p.id) === rundownIdStr);
+    let rundownData = rundowns.find(p => String(p.id) === rundownIdStr);
+    
+    // Se não encontrou, tenta buscar diretamente do servidor
     if (!rundownData) {
-      console.error('❌ loadRundownState: Rundown não encontrado:', rundownIdStr);
-      console.error('❌ loadRundownState: Tentando recarregar rundowns...');
-      // Tenta recarregar rundowns uma vez
-      fetchRundowns();
-      return null;
+      console.warn('⚠️ loadRundownState: Rundown não encontrado na lista local, buscando do servidor...');
+      try {
+        // Força recarregar do servidor
+        const updatedRundowns = await fetchRundowns(true);
+        // Tenta encontrar no resultado retornado
+        rundownData = updatedRundowns.find(p => String(p.id) === rundownIdStr);
+        
+        if (!rundownData) {
+          console.error('❌ loadRundownState: Rundown não encontrado mesmo após buscar do servidor:', rundownIdStr);
+          return null;
+        }
+      } catch (error) {
+        console.error('❌ loadRundownState: Erro ao buscar do servidor:', error);
+        return null;
+      }
     }
 
     console.log('✅ loadRundownState: Rundown encontrado:', { id: rundownData.id, name: rundownData.name });
