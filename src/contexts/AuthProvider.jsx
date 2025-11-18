@@ -102,6 +102,39 @@ const AuthProvider = ({ children }) => {
     }
   }, [logout]);
 
+  // Função para atualizar dados do usuário do servidor
+  const refreshUserData = useCallback(async () => {
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken || !user) return false;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/user/profile`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentToken}`
+        }
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        console.log('✅ Dados do usuário atualizados:', { 
+          can_operate: userData.can_operate, 
+          can_present: userData.can_present 
+        });
+        return true;
+      } else {
+        console.warn('⚠️ Falha ao atualizar dados do usuário');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Erro ao atualizar dados do usuário:', error);
+      return false;
+    }
+  }, [user]);
+
   const login = useCallback((userData, jwt) => {
     setUser(userData);
     setToken(jwt);
@@ -109,8 +142,19 @@ const AuthProvider = ({ children }) => {
     localStorage.setItem('token', jwt);
   }, []);
 
+  // Atualiza dados do usuário periodicamente (a cada 30 segundos)
+  useEffect(() => {
+    if (!token || !user) return;
+
+    const interval = setInterval(() => {
+      refreshUserData();
+    }, 30000); // 30 segundos
+
+    return () => clearInterval(interval);
+  }, [token, user, refreshUserData]);
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, setUser, refreshToken }}>
+    <AuthContext.Provider value={{ user, token, login, logout, setUser, refreshToken, refreshUserData }}>
       {children}
     </AuthContext.Provider>
   );

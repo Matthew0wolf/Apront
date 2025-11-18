@@ -22,7 +22,9 @@ def get_profile():
             'role': user.role.value,
             'avatar': user.avatar,
             'joined_at': user.joined_at,
-            'company_id': user.company_id
+            'company_id': user.company_id,
+            'can_operate': user.can_operate,
+            'can_present': user.can_present
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500

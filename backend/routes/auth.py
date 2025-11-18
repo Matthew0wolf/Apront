@@ -316,7 +316,9 @@ def refresh_token():
                 'name': user.name, 
                 'email': user.email, 
                 'role': user.role.value, 
-                'avatar': user.avatar
+                'avatar': user.avatar,
+                'can_operate': user.can_operate,
+                'can_present': user.can_present
             }
         })
         

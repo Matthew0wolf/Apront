@@ -10,7 +10,7 @@ import { API_BASE_URL } from '@/config/api';
 const TeamView = ({ currentProject }) => {
   const { toast } = useToast();
   const [inviteEmail, setInviteEmail] = useState('');
-  const { token, login, user } = useContext(AuthContext);
+  const { token, login, user, refreshUserData } = useContext(AuthContext);
   const { apiCall } = useApi();
 
   const [teamMembers, setTeamMembers] = useState([]);
@@ -106,7 +106,7 @@ const TeamView = ({ currentProject }) => {
     }
   };
 
-  const handlePermissionChange = (memberId, permission, value) => {
+  const handlePermissionChange = async (memberId, permission, value) => {
     // Atualiza localmente para resposta rápida
     setTeamMembers((prev) =>
       prev.map((member) =>
@@ -114,33 +114,45 @@ const TeamView = ({ currentProject }) => {
       )
     );
     
-    // Persiste no back-end
-    fetch(`${API_BASE_URL}/api/team/${memberId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ [permission]: value })
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Erro ao atualizar permissão');
-        return res.json();
-      })
-      .then((data) => {
-        toast({
-          title: "✅ Permissão Atualizada",
-          description: `Permissão ${permission} alterada com sucesso!`,
-        });
-      })
-      .catch((error) => {
-        console.error('Erro ao atualizar permissão:', error);
-        toast({
-          title: "Erro",
-          description: "Não foi possível atualizar a permissão no servidor.",
-          variant: "destructive",
-        });
+    try {
+      // Persiste no back-end
+      const res = await fetch(`${API_BASE_URL}/api/team/${memberId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ [permission]: value })
       });
+      
+      if (!res.ok) throw new Error('Erro ao atualizar permissão');
+      
+      const data = await res.json();
+      
+      // Se for o próprio usuário, atualiza os dados no contexto imediatamente
+      if (user && user.id === memberId && refreshUserData) {
+        console.log('🔄 Atualizando dados do próprio usuário após mudança de permissão');
+        await refreshUserData();
+      }
+      
+      toast({
+        title: "✅ Permissão Atualizada",
+        description: `Permissão ${permission} alterada com sucesso!`,
+      });
+    } catch (error) {
+      console.error('Erro ao atualizar permissão:', error);
+      // Reverte a mudança local em caso de erro
+      setTeamMembers((prev) =>
+        prev.map((member) =>
+          member.id === memberId ? { ...member, [permission]: !value } : member
+        )
+      );
+      toast({
+        title: "Erro",
+        description: "Não foi possível atualizar a permissão no servidor.",
+        variant: "destructive",
+      });
+    }
   };
 
 
