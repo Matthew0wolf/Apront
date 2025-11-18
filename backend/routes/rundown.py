@@ -154,13 +154,17 @@ def create_rundown():
 
 # Editar projeto existente
 @rundown_bp.route('/<int:rundown_id>', methods=['PATCH'])
-@jwt_required()
+@jwt_required(allowed_roles=['admin', 'operator'])
 def update_rundown(rundown_id):
     user = g.current_user
     # CRÍTICO: Verificar se rundown pertence à mesma empresa
     rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
     if not rundown:
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
+    
+    # Bloquear edição se rundown estiver "Ao Vivo"
+    if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
+        return jsonify({'error': 'Não é possível editar um rundown que está ao vivo'}), 403
     data = request.get_json()
     
     # Armazena as mudanças para notificar via WebSocket
@@ -268,7 +272,7 @@ def update_rundown_status(rundown_id):
 
 # Deletar projeto
 @rundown_bp.route('/<int:rundown_id>', methods=['DELETE'])
-@jwt_required()
+@jwt_required(allowed_roles=['admin', 'operator'])
 def delete_rundown(rundown_id):
     user = g.current_user
     print(f"[DELETE] Tentando deletar rundown {rundown_id}")
@@ -287,6 +291,10 @@ def delete_rundown(rundown_id):
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
     
     print(f"[DELETE] Rundown encontrado: {rundown.name} (ID: {rundown.id}, Empresa: {rundown.company_id})")
+    
+    # Bloquear deleção se rundown estiver "Ao Vivo"
+    if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
+        return jsonify({'error': 'Não é possível deletar um rundown que está ao vivo'}), 403
     
     try:
         # Deletar membros do rundown primeiro (cascade deve fazer isso, mas garantimos)
@@ -353,7 +361,7 @@ def get_rundown_members(rundown_id):
 
 # Atualizar membros do rundown
 @rundown_bp.route('/<int:rundown_id>/members', methods=['PATCH'])
-@jwt_required()
+@jwt_required(allowed_roles=['admin', 'operator'])
 def update_rundown_members(rundown_id):
     user = g.current_user
     # CRÍTICO: Verificar se rundown pertence à mesma empresa
@@ -361,16 +369,14 @@ def update_rundown_members(rundown_id):
     if not rundown:
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
 
+    # Bloquear alteração de membros se rundown estiver "Ao Vivo"
+    if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
+        return jsonify({'error': 'Não é possível alterar membros de um rundown que está ao vivo'}), 403
+
     data = request.get_json() or {}
     members = data.get('members', [])
     if not isinstance(members, list):
         return jsonify({'error': 'Formato inválido de members'}), 400
-
-    # Admin pode sempre; não-admin só se já for membro
-    if user.role.value != 'admin':
-        is_member = RundownMember.query.filter_by(rundown_id=rundown_id, user_id=user.id).first() is not None
-        if not is_member:
-            return jsonify({'error': 'Permissão insuficiente'}), 403
 
     # Remove membros atuais e recria lista (mantém criador/owner se existir)
     existing = RundownMember.query.filter_by(rundown_id=rundown_id).all()

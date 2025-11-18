@@ -1,0 +1,146 @@
+========================================
+COMANDOS SSH PARA VPS - IP: 72.60.56.28
+========================================
+
+1. CONECTAR NA VPS:
+-------------------
+ssh root@72.60.56.28
+# ou
+ssh usuario@72.60.56.28
+
+2. VER LOGS DO DOCKER COMPOSE (BACKEND):
+----------------------------------------
+# Navegar até o diretório do projeto
+cd /caminho/do/projeto/Apront
+
+# Ver últimas 100 linhas dos logs
+docker compose logs --tail=100 backend
+
+# Ver logs em tempo real (monitoramento)
+docker compose logs -f backend
+
+# Filtrar apenas logs relacionados a email
+docker compose logs backend | grep -i email
+
+# Ver logs de email em tempo real
+docker compose logs -f backend | grep -i "\[EMAIL\]"
+
+3. VER LOGS DE SEGURANÇA:
+--------------------------
+# Ver últimas 100 linhas do security.log
+tail -100 backend/security.log
+
+# Ver logs em tempo real
+tail -f backend/security.log
+
+# Filtrar apenas erros
+tail -100 backend/security.log | grep -i error
+
+4. VER LOGS ESPECÍFICOS DE EMAIL:
+----------------------------------
+# Ver todos os logs relacionados a email
+docker compose logs backend | grep -i "\[EMAIL\]"
+
+# Ver erros de email
+docker compose logs backend | grep -i "\[ERRO.*EMAIL\]"
+
+# Ver tentativas de envio de convite
+docker compose logs backend | grep -i "send_invite_email"
+
+# Ver validação SMTP
+docker compose logs backend | grep -i "\[VALIDACAO\]"
+
+5. VERIFICAR STATUS DOS CONTAINERS:
+-----------------------------------
+# Ver containers em execução
+docker compose ps
+
+# Ver todos os containers (incluindo parados)
+docker compose ps -a
+
+# Ver logs de todos os serviços
+docker compose logs
+
+6. VERIFICAR CONFIGURAÇÕES SMTP:
+---------------------------------
+# Entrar no container do backend
+docker compose exec backend bash
+
+# Dentro do container, verificar variáveis de ambiente
+env | grep SMTP
+
+# Verificar arquivo .env
+cat .env | grep SMTP
+
+# Testar configuração SMTP
+python -c "
+import os
+from dotenv import load_dotenv
+load_dotenv()
+print('SMTP_SERVER:', os.getenv('SMTP_SERVER'))
+print('SMTP_PORT:', os.getenv('SMTP_PORT'))
+print('SMTP_USERNAME:', os.getenv('SMTP_USERNAME'))
+print('SMTP_PASSWORD:', 'DEFINIDO' if os.getenv('SMTP_PASSWORD') else 'NAO DEFINIDO')
+print('FROM_EMAIL:', os.getenv('FROM_EMAIL'))
+"
+
+7. TESTAR ENVIO DE EMAIL DIRETAMENTE:
+--------------------------------------
+# Entrar no container
+docker compose exec backend bash
+
+# Testar função de envio
+python -c "
+import sys
+sys.path.insert(0, '/app')
+from email_utils import _validate_smtp_config, send_invite_email
+
+print('=== Validando SMTP ===')
+result = _validate_smtp_config()
+print(f'Validação: {result}')
+
+if result:
+    print('\\n=== Testando envio ===')
+    result = send_invite_email('teste@teste.com', 'TOKEN_TESTE_123')
+    print(f'Envio: {result}')
+"
+
+8. VER LOGS RECENTES DE ERRO:
+------------------------------
+# Últimas 50 linhas com erro
+docker compose logs backend | grep -i error | tail -50
+
+# Últimas 50 linhas com traceback
+docker compose logs backend | grep -A 10 -i traceback | tail -50
+
+9. REINICIAR O BACKEND:
+-----------------------
+# Reiniciar apenas o backend
+docker compose restart backend
+
+# Ver logs após reiniciar
+docker compose logs -f backend
+
+10. VER ARQUIVOS DE LOG:
+------------------------
+# Listar arquivos de log
+ls -lah backend/*.log
+
+# Ver tamanho dos logs
+du -sh backend/*.log
+
+# Ver conteúdo do security.log
+cat backend/security.log | tail -100
+
+========================================
+DICAS:
+========================================
+
+- Use 'docker compose logs -f backend' para monitorar em tempo real
+- Os logs de email têm prefixo [EMAIL]
+- Os erros têm prefixo [ERRO]
+- As validações têm prefixo [VALIDACAO]
+- Use Ctrl+C para parar o monitoramento em tempo real
+
+========================================
+

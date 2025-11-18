@@ -19,11 +19,14 @@ const ProjectsView = () => {
   const { rundowns, handleCreateRundown, handleDeleteRundown, handleUpdateRundownMembers, loadRundownState, isRunning, activeRundown } = useRundown();
   const { toast } = useToast();
   const navigate = useNavigate();
-  const { token } = useContext(AuthContext);
+  const { token, user } = useContext(AuthContext);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
   const [projectToManage, setProjectToManage] = useState(null);
+  
+  // Verifica se o usuário tem permissão para gerenciar rundowns (admin ou operador)
+  const canManageRundowns = user && (user.role === 'admin' || user.role === 'operator');
 
   // Garante que rundowns seja sempre um array válido
   const safeRundowns = Array.isArray(rundowns) ? rundowns : [];
@@ -164,16 +167,45 @@ const ProjectsView = () => {
                           <Play className="w-4 h-4 mr-2" />
                           Abrir Projeto
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          setProjectToManage({ ...project, manageTeam: true });
-                          setCreateDialogOpen(true);
-                        }}>
-                          <Users className="w-4 h-4 mr-2" />
-                          Gerenciar Equipe
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDelete(project.id)} className="text-red-600">
-                          Excluir
-                        </DropdownMenuItem>
+                        {canManageRundowns && (
+                          <>
+                            <DropdownMenuItem 
+                              onClick={() => {
+                                // Verifica se o rundown está ao vivo antes de permitir gerenciar equipe
+                                if (project.status && project.status.toLowerCase() === 'ao vivo') {
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Ação bloqueada",
+                                    description: "Não é possível alterar membros de um rundown que está ao vivo.",
+                                  });
+                                  return;
+                                }
+                                setProjectToManage({ ...project, manageTeam: true });
+                                setCreateDialogOpen(true);
+                              }}
+                            >
+                              <Users className="w-4 h-4 mr-2" />
+                              Gerenciar Equipe
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => {
+                                // Verifica se o rundown está ao vivo antes de permitir deletar
+                                if (project.status && project.status.toLowerCase() === 'ao vivo') {
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Ação bloqueada",
+                                    description: "Não é possível deletar um rundown que está ao vivo.",
+                                  });
+                                  return;
+                                }
+                                handleDelete(project.id);
+                              }} 
+                              className="text-red-600"
+                            >
+                              Excluir
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
