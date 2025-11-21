@@ -318,6 +318,61 @@ def update_rundown_status(rundown_id):
         
         db.session.commit()
         
+        # Criar notificações para todos os membros do rundown
+        from routes.notifications import create_notification
+        from models import User
+        
+        # Obter todos os membros do rundown
+        members = RundownMember.query.filter_by(rundown_id=rundown_id).all()
+        
+        # Determinar título e mensagem da notificação baseado no status
+        if new_status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
+            notif_title = '▶️ Transmissão Iniciada'
+            notif_message = f'{rundown.name} está AO VIVO'
+            notif_type = 'success'
+        elif new_status.lower() in ['pausado', 'paused', 'pausa']:
+            notif_title = '⏸️ Transmissão Pausada'
+            notif_message = f'{rundown.name} foi pausado'
+            notif_type = 'info'
+        elif new_status.lower() in ['parado', 'stopped', 'encerrado']:
+            notif_title = '⏹️ Transmissão Encerrada'
+            notif_message = f'{rundown.name} foi encerrado'
+            notif_type = 'warning'
+        else:
+            notif_title = f'Status Atualizado: {new_status}'
+            notif_message = f'{rundown.name} mudou para {new_status}'
+            notif_type = 'info'
+        
+        # Criar notificação para cada membro
+        for member in members:
+            try:
+                create_notification(
+                    user_id=member.user_id,
+                    title=notif_title,
+                    message=notif_message,
+                    type=notif_type,
+                    category='rundown',
+                    related_id=rundown_id,
+                    action_url=f'/project/{rundown_id}/select-role'
+                )
+            except Exception as notif_error:
+                print(f"Erro ao criar notificação para usuário {member.user_id}: {notif_error}")
+        
+        # Notificar via WebSocket para todos os membros da empresa
+        try:
+            from websocket_server import socketio
+            # Enviar evento de notificação para a sala da empresa
+            socketio.emit('new_notification', {
+                'title': notif_title,
+                'message': notif_message,
+                'type': notif_type,
+                'category': 'rundown',
+                'related_id': rundown_id
+            }, room=f'company_{user.company_id}')
+            print(f'📢 Notificação de status enviada via WebSocket para empresa {user.company_id}')
+        except Exception as ws_error:
+            print(f"AVISO: Erro ao enviar notificação via WebSocket: {ws_error}")
+        
         # Notifica todos os clientes conectados sobre a mudança de status via WebSocket
         try:
             changes = {

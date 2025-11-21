@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useState, useEffect } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { API_BASE_URL } from '@/config/api';
+import { websocketManager } from '../lib/websocket';
 
 const NotificationsContext = createContext();
 
@@ -17,8 +18,34 @@ export const NotificationsProvider = ({ children }) => {
     
     // Atualizar a cada 30 segundos
     const interval = setInterval(loadNotifications, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    
+    // Listener para notificações via WebSocket
+    const handleNewNotification = (data) => {
+      console.log('📢 Notificação recebida via WebSocket:', data);
+      // Adiciona a notificação localmente (já mostra toast automaticamente)
+      addNotification({
+        title: data.title,
+        description: data.message,
+        type: data.type || 'info',
+        category: data.category || 'system',
+        related_id: data.related_id
+      });
+      // Recarrega notificações do backend para garantir sincronização
+      setTimeout(() => loadNotifications(), 500);
+    };
+    
+    // Registrar listener no WebSocket
+    if (websocketManager.socket) {
+      websocketManager.socket.on('new_notification', handleNewNotification);
+    }
+    
+    return () => {
+      clearInterval(interval);
+      if (websocketManager.socket) {
+        websocketManager.socket.off('new_notification', handleNewNotification);
+      }
+    };
+  }, [loadNotifications, addNotification]);
 
   const loadNotifications = useCallback(async () => {
     try {
