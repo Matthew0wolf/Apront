@@ -229,7 +229,10 @@ def update_rundown(rundown_id):
                 )
                 db.session.add(new_item)
         
-        changes['items'] = {'updated': True}
+        # Não incluir items no changes para WebSocket - o frontend já sincroniza quando adiciona
+        # Remover items do changes para evitar conflito (frontend já tem os items atualizados)
+        if 'items' in changes:
+            del changes['items']
         print(f"[UPDATE] Pastas e itens salvos para rundown {rundown_id}")
     
     # Atualiza last_modified
