@@ -1,6 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Play, Clock, Users, Folder, MoreVertical, ChevronDown, Minus, ExternalLink } from 'lucide-react';
+import { Plus, Search, Play, Clock, Users, Folder, MoreVertical, ChevronDown, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
