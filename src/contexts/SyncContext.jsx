@@ -124,10 +124,11 @@ export const SyncProvider = ({ children }) => {
       return;
     }
     
-    console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes, hasItems: !!changes.items });
+    console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes, hasItems: !!changes.items, changesKeys: Object.keys(changes) });
     
     // Se houver mudanças em 'items', salvar no banco de dados via API
-    if (changes.items) {
+    if (changes && changes.items && Array.isArray(changes.items)) {
+      console.log('🔍 [DEBUG] changes.items detectado!', { itemsLength: changes.items.length, rundownId });
       try {
         console.log('💾 [SAVE] Salvando pastas e eventos no banco de dados...', { 
           rundownId, 
