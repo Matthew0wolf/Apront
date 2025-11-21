@@ -12,49 +12,6 @@ export const NotificationsProvider = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const { toast } = useToast();
 
-  // Carregar notificações do backend ao montar
-  useEffect(() => {
-    loadNotifications();
-    
-    // Atualizar a cada 30 segundos
-    const interval = setInterval(loadNotifications, 30000);
-    
-    // Listener para notificações via WebSocket
-    const handleNewNotification = (data) => {
-      console.log('📢 Notificação recebida via WebSocket:', data);
-      // Adiciona a notificação localmente (já mostra toast automaticamente)
-      addNotification({
-        title: data.title,
-        description: data.message,
-        type: data.type || 'info',
-        category: data.category || 'system',
-        related_id: data.related_id
-      });
-      // Recarrega notificações do backend para garantir sincronização
-      setTimeout(() => loadNotifications(), 500);
-    };
-    
-    // Registrar listener no WebSocket (aguarda conexão se necessário)
-    const setupWebSocketListener = () => {
-      if (websocketManager.socket && websocketManager.isConnected) {
-        websocketManager.socket.on('new_notification', handleNewNotification);
-        console.log('✅ Listener de notificações WebSocket registrado');
-      } else {
-        // Aguarda um pouco e tenta novamente se ainda não conectou
-        setTimeout(setupWebSocketListener, 1000);
-      }
-    };
-    
-    setupWebSocketListener();
-    
-    return () => {
-      clearInterval(interval);
-      if (websocketManager.socket) {
-        websocketManager.socket.off('new_notification', handleNewNotification);
-      }
-    };
-  }, [loadNotifications, addNotification]);
-
   const loadNotifications = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
@@ -176,6 +133,49 @@ export const NotificationsProvider = ({ children }) => {
     setNotifications([]);
     setUnreadCount(0);
   }, []);
+
+  // Carregar notificações do backend ao montar e configurar WebSocket
+  useEffect(() => {
+    loadNotifications();
+    
+    // Atualizar a cada 30 segundos
+    const interval = setInterval(loadNotifications, 30000);
+    
+    // Listener para notificações via WebSocket
+    const handleNewNotification = (data) => {
+      console.log('📢 Notificação recebida via WebSocket:', data);
+      // Adiciona a notificação localmente (já mostra toast automaticamente)
+      addNotification({
+        title: data.title,
+        description: data.message,
+        type: data.type || 'info',
+        category: data.category || 'system',
+        related_id: data.related_id
+      });
+      // Recarrega notificações do backend para garantir sincronização
+      setTimeout(() => loadNotifications(), 500);
+    };
+    
+    // Registrar listener no WebSocket (aguarda conexão se necessário)
+    const setupWebSocketListener = () => {
+      if (websocketManager.socket && websocketManager.isConnected) {
+        websocketManager.socket.on('new_notification', handleNewNotification);
+        console.log('✅ Listener de notificações WebSocket registrado');
+      } else {
+        // Aguarda um pouco e tenta novamente se ainda não conectou
+        setTimeout(setupWebSocketListener, 1000);
+      }
+    };
+    
+    setupWebSocketListener();
+    
+    return () => {
+      clearInterval(interval);
+      if (websocketManager.socket) {
+        websocketManager.socket.off('new_notification', handleNewNotification);
+      }
+    };
+  }, [loadNotifications, addNotification]);
 
   const value = useMemo(() => ({ 
     notifications, 
