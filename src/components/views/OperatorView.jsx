@@ -117,7 +117,10 @@ const OperatorView = () => {
     return Math.max(currentItem.duration - itemElapsedTime, 0);
   }, [itemElapsedTime, currentItem, isRunning]);
 
-  const flatItems = useMemo(() => rundown?.items.flatMap(f => f.children) || [], [rundown]);
+  const flatItems = useMemo(() => {
+    if (!rundown?.items || !Array.isArray(rundown.items)) return [];
+    return rundown.items.flatMap(f => f.children || []);
+  }, [rundown]);
   const globalCurrentIndex = useMemo(() => {
     if (!rundown) return -1;
     return rundown.items.slice(0, currentItemIndex.folderIndex).reduce((acc, f) => acc + f.children.length, 0) + currentItemIndex.itemIndex;

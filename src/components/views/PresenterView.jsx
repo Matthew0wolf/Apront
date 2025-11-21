@@ -132,7 +132,10 @@ const PresenterView = () => {
 
   const currentItem = useMemo(() => rundown?.items[currentItemIndex.folderIndex]?.children[currentItemIndex.itemIndex], [rundown, currentItemIndex]);
   
-  const flatItems = useMemo(() => rundown?.items.flatMap(f => f.children) || [], [rundown]);
+  const flatItems = useMemo(() => {
+    if (!rundown?.items || !Array.isArray(rundown.items)) return [];
+    return rundown.items.flatMap(f => f.children || []);
+  }, [rundown]);
   
   const globalCurrentIndex = useMemo(() => {
     if (!rundown) return -1;

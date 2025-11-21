@@ -136,9 +136,12 @@ export const RundownProvider = ({ children }) => {
         }
         
         // Sincroniza mudanças na estrutura do rundown (adicionar/remover itens)
-        if (changes.items) {
+        // IMPORTANTE: Só atualiza se items for um array (não um objeto como {updated: true})
+        if (changes.items && Array.isArray(changes.items)) {
           console.log('📡 RundownContext: Atualizando estrutura do rundown:', changes.items);
           setActiveRundown(prev => ({ ...prev, items: changes.items }));
+        } else if (changes.items && !Array.isArray(changes.items)) {
+          console.log('⚠️ RundownContext: changes.items não é um array, ignorando atualização:', changes.items);
         }
       }
     };
