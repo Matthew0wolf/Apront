@@ -124,9 +124,23 @@ git diff HEAD~1 --name-only
 
 ---
 
-### **PASSO 9: Reiniciar o Container Backend**
+### **PASSO 9: Atualizar Backend no Container**
+
+Como o código está dentro do container (não é um volume montado), precisamos copiar os arquivos:
 
 ```bash
+# IMPORTANTE: Preservar o .env existente no container
+# Primeiro, fazer backup do .env atual (se quiser)
+docker exec apront-backend cat /app/.env > /tmp/.env_backup
+
+# Copiar código atualizado para o container (excluindo .env)
+cd backend
+tar --exclude='.env' -cf - . | docker cp - apront-backend:/app/
+cd ..
+
+# OU usar rsync se disponível (preserva .env automaticamente)
+# docker cp --exclude='.env' ./backend/. apront-backend:/app/
+
 # Reiniciar o container
 docker restart apront-backend
 
@@ -139,7 +153,35 @@ docker ps | grep apront-backend
 
 ---
 
-### **PASSO 10: Verificar Logs**
+### **PASSO 10: Atualizar Frontend (se necessário)**
+
+Se o frontend também precisa ser atualizado:
+
+```bash
+# Verificar se existe diretório do frontend
+ls -la /var/www/apront 2>/dev/null || echo "Frontend não encontrado em /var/www/apront"
+
+# Se existir, atualizar e rebuildar
+cd /var/www/apront
+git pull origin main  # Se for um repositório Git
+# OU copiar do /root/Apront se necessário
+# cp -r /root/Apront/src /var/www/apront/
+
+# Rebuildar o frontend
+npm install
+npm run build
+
+# Corrigir permissões
+sudo chown -R www-data:www-data /var/www/apront/dist
+sudo chmod -R 755 /var/www/apront/dist
+
+# Recarregar Nginx
+sudo systemctl reload nginx
+```
+
+---
+
+### **PASSO 11: Verificar Logs**
 
 ```bash
 # Ver logs recentes do backend
@@ -147,6 +189,10 @@ docker logs apront-backend --tail=50
 
 # Verificar se há erros
 docker logs apront-backend --tail=100 | grep -i error
+
+# Verificar se endpoints foram atualizados
+docker exec apront-backend grep -A 2 "can_operate" /app/routes/auth.py | head -5
+docker exec apront-backend grep -A 2 "can_operate" /app/routes/user.py | head -5
 
 # Monitorar logs em tempo real (opcional)
 docker logs -f apront-backend
@@ -183,13 +229,23 @@ git log HEAD..origin/main --oneline
 # 8. Atualizar
 git pull origin main
 
-# 9. Reiniciar container
+# 9. Copiar backend para container (preservando .env)
+cd backend && tar --exclude='.env' -cf - . | docker cp - apront-backend:/app/ && cd ..
+
+# 10. Reiniciar container
 docker restart apront-backend
 
-# 10. Aguardar e verificar
+# 11. Aguardar e verificar
 sleep 5
 docker ps | grep apront-backend
 docker logs apront-backend --tail=30
+
+# 12. Verificar se atualizações foram aplicadas
+docker exec apront-backend grep -A 2 "can_operate" /app/routes/auth.py | head -5
+docker exec apront-backend grep -A 2 "can_operate" /app/routes/user.py | head -5
+
+# 13. Atualizar frontend (se necessário)
+cd /var/www/apront 2>/dev/null && git pull origin main && npm install && npm run build && sudo chown -R www-data:www-data dist && sudo systemctl reload nginx || echo "Frontend não encontrado ou erro ao atualizar"
 ```
 
 ---
