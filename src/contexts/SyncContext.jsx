@@ -123,6 +123,30 @@ export const SyncProvider = ({ children }) => {
     
     console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes });
     
+    // Se houver mudanças em 'items', salvar no banco de dados via API
+    if (changes.items) {
+      try {
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (window.location.hostname.includes('localhost') ? 'http://localhost:5001' : window.location.origin);
+        const response = await fetch(`${API_BASE_URL}/api/rundowns/${rundownId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ items: changes.items })
+        });
+        
+        if (response.ok) {
+          console.log('✅ Pastas e eventos salvos no banco de dados');
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('❌ Erro ao salvar no banco:', errorData);
+        }
+      } catch (error) {
+        console.error('❌ Erro ao salvar mudanças no banco:', error);
+      }
+    }
+    
     // Dispara evento imediatamente para o mesmo cliente
     window.dispatchEvent(new CustomEvent('rundownSync', { 
       detail: { 

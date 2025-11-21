@@ -156,6 +156,9 @@ def create_rundown():
 @rundown_bp.route('/<int:rundown_id>', methods=['PATCH'])
 @jwt_required(allowed_roles=['admin', 'operator'])
 def update_rundown(rundown_id):
+    from models import Folder, Item
+    import datetime
+    
     user = g.current_user
     # CRÍTICO: Verificar se rundown pertence à mesma empresa
     rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
@@ -177,6 +180,60 @@ def update_rundown(rundown_id):
                 'old': old_value,
                 'new': data[field]
             }
+    
+    # Salvar pastas e itens se fornecidos
+    if 'items' in data:
+        items_data = data['items']
+        
+        # Remove todas as pastas e itens existentes (cascade vai remover os itens automaticamente)
+        Folder.query.filter_by(rundown_id=rundown_id).delete()
+        
+        # Cria novas pastas e itens
+        for folder_index, folder_data in enumerate(items_data):
+            # Ignorar se não for uma pasta válida
+            if not folder_data or folder_data.get('type') != 'folder':
+                continue
+                
+            new_folder = Folder(
+                title=folder_data.get('title', f'Pasta {folder_index + 1}'),
+                ordem=folder_index + 1,
+                rundown_id=rundown_id
+            )
+            db.session.add(new_folder)
+            db.session.flush()  # Para obter o ID da pasta
+            
+            # Adiciona itens da pasta
+            children = folder_data.get('children', [])
+            for item_index, item_data in enumerate(children):
+                # Ignorar se não for um item válido
+                if not item_data or item_data.get('type') == 'folder':
+                    continue
+                    
+                new_item = Item(
+                    title=item_data.get('title', f'Evento {item_index + 1}'),
+                    duration=int(item_data.get('duration', 60) or 60),
+                    description=item_data.get('description', ''),
+                    type=item_data.get('type', 'generic'),
+                    status=item_data.get('status', 'pending'),
+                    icon_type=item_data.get('iconType', 'lucide'),
+                    icon_data=item_data.get('iconData', 'HelpCircle'),
+                    color=item_data.get('color', '#808080'),
+                    urgency=item_data.get('urgency', 'normal'),
+                    reminder=item_data.get('reminder', ''),
+                    ordem=item_index + 1,
+                    folder_id=new_folder.id,
+                    script=item_data.get('script'),
+                    talking_points=item_data.get('talking_points'),
+                    pronunciation_guide=item_data.get('pronunciation_guide'),
+                    presenter_notes=item_data.get('presenter_notes')
+                )
+                db.session.add(new_item)
+        
+        changes['items'] = {'updated': True}
+        print(f"[UPDATE] Pastas e itens salvos para rundown {rundown_id}")
+    
+    # Atualiza last_modified
+    rundown.last_modified = datetime.datetime.utcnow().isoformat()
     
     db.session.commit()
     
