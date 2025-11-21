@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Play, Pause, Square, SkipForward, ArrowLeft, Users, Wifi, WifiOff, Edit, Plus, Folder, Trash2, MousePointerClick, GripVertical, FileText, Monitor, Eye, EyeOff, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+import { useNotifications } from '@/contexts/NotificationsContext.jsx';
 import { usePresenterConfig } from '@/contexts/PresenterConfigContext.jsx';
 import EditItemDialog from '@/components/dialogs/EditItemDialog';
 import EditFolderDialog from '@/components/dialogs/EditFolderDialog';
@@ -164,6 +165,7 @@ const OperatorView = () => {
   const [editingFolder, setEditingFolder] = useState(null);
   const [editingScript, setEditingScript] = useState(null);
   const { toast } = useToast();
+  const { addNotification } = useNotifications();
 
   // Função para tocar som de alerta
   const playAlertSound = useCallback(async (frequency = 800, duration = 200) => {
@@ -302,15 +304,23 @@ const OperatorView = () => {
     
     // Sincroniza o estado do timer com outros clientes
     syncTimerState(newRunningState, timeElapsed, currentItemIndex);
-    
-    toast({ 
-      title: newRunningState ? "▶️ Transmissão Iniciada" : "⏸️ Transmissão Pausada", 
-      description: newRunningState ? "Rundown está ao vivo!" : "Rundown pausado." 
-    });
 
-    // Atualizar status do rundown
-    if (newRunningState && rundown?.id) {
-      updateRundownStatus(rundown.id, 'Ao Vivo');
+    // Notificação para equipe (já mostra toast automaticamente)
+    if (newRunningState) {
+      if (rundown?.id) {
+        updateRundownStatus(rundown.id, 'Ao Vivo');
+      }
+      addNotification({
+        type: 'success',
+        title: '▶️ Transmissão Iniciada',
+        description: `${rundown?.name || 'Rundown'} está AO VIVO`
+      });
+    } else {
+      addNotification({
+        type: 'info',
+        title: '⏸️ Transmissão Pausada',
+        description: `${rundown?.name || 'Rundown'} foi pausado`
+      });
     }
   };
 
@@ -321,12 +331,16 @@ const OperatorView = () => {
     
     // Sincroniza o estado de parada com outros clientes
     syncTimerState(false, 0, { folderIndex: 0, itemIndex: 0 });
-    
-    toast({ title: "⏹️ Transmissão Parada", description: "Rundown resetado." });
 
     if (rundown?.id) {
       updateRundownStatus(rundown.id, 'Parado');
     }
+    // Notificação (já mostra toast automaticamente)
+    addNotification({
+      type: 'warning',
+      title: '⏹️ Transmissão Parada',
+      description: `${rundown?.name || 'Rundown'} foi encerrado`
+    });
   };
 
   const addFolder = () => {
