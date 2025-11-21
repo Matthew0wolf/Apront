@@ -65,8 +65,18 @@ def jwt_required(allowed_roles=None, permission=None):
                 # Verificar role se especificado
                 if allowed_roles:
                     user_role = user.role.value if hasattr(user.role, 'value') else str(user.role)
+                    # Se o role não está na lista, verificar permissões modulares (can_operate, can_present)
                     if user_role not in allowed_roles:
-                        return jsonify({'error': 'Permissão negada'}), 403
+                        # Para roles 'admin' ou 'operator', verificar can_operate
+                        if 'admin' in allowed_roles or 'operator' in allowed_roles:
+                            if not getattr(user, 'can_operate', False):
+                                return jsonify({'error': 'Permissão negada'}), 403
+                        # Para role 'presenter', verificar can_present
+                        elif 'presenter' in allowed_roles:
+                            if not getattr(user, 'can_present', False):
+                                return jsonify({'error': 'Permissão negada'}), 403
+                        else:
+                            return jsonify({'error': 'Permissão negada'}), 403
                 
                 # Verificar permission se especificado
                 if permission:
