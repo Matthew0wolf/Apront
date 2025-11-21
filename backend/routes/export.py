@@ -168,7 +168,12 @@ def import_rundown():
         
         # Adicionar o usuário como membro/owner do rundown importado
         from models import RundownMember
-        db.session.add(RundownMember(rundown_id=new_rundown.id, user_id=current_user.id, role='owner'))
+        rundown_member = RundownMember(rundown_id=new_rundown.id, user_id=current_user.id, role='owner')
+        db.session.add(rundown_member)
+        db.session.flush()  # Garantir que o membro seja criado antes do commit
+        
+        print(f"[IMPORT] Rundown {new_rundown.id} importado por usuário {current_user.id} ({current_user.name})")
+        print(f"[IMPORT] Membro criado: rundown_id={rundown_member.rundown_id}, user_id={rundown_member.user_id}, role={rundown_member.role}")
         
         db.session.commit()
         

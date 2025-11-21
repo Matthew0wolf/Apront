@@ -158,7 +158,7 @@ def create_rundown():
 
 # Editar projeto existente
 @rundown_bp.route('/<int:rundown_id>', methods=['PATCH'])
-@jwt_required(allowed_roles=['admin', 'operator'])
+@jwt_required()
 def update_rundown(rundown_id):
     from models import Folder, Item
     import datetime
@@ -168,6 +168,27 @@ def update_rundown(rundown_id):
     rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
     if not rundown:
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
+    
+    # Verificar permissão: admin/operator OU membro do rundown
+    user_role = user.role.value if hasattr(user.role, 'value') else str(user.role)
+    has_operate_permission = (user_role in ['admin', 'operator']) or getattr(user, 'can_operate', False)
+    
+    # Verificar se é membro do rundown (owner ou member)
+    rundown_member = RundownMember.query.filter_by(rundown_id=rundown_id, user_id=user.id).first()
+    is_member = rundown_member is not None
+    is_owner = rundown_member and rundown_member.role == 'owner'
+    
+    # Debug: log de permissões
+    print(f"[UPDATE RUNDOWN] Usuário {user.id} ({user.name}) tentando editar rundown {rundown_id}")
+    print(f"[UPDATE RUNDOWN] Role: {user_role}, can_operate: {getattr(user, 'can_operate', False)}")
+    print(f"[UPDATE RUNDOWN] has_operate_permission: {has_operate_permission}, is_member: {is_member}, is_owner: {is_owner}")
+    
+    # Permitir edição se: tem can_operate OU é membro do rundown (especialmente owner)
+    if not has_operate_permission and not is_member:
+        print(f"[UPDATE RUNDOWN] ❌ PERMISSÃO NEGADA para usuário {user.id}")
+        return jsonify({'error': 'Permissão negada. Você precisa ser operador ou membro deste rundown para editá-lo.'}), 403
+    
+    print(f"[UPDATE RUNDOWN] ✅ PERMISSÃO CONCEDIDA para usuário {user.id}")
     
     # Bloquear edição se rundown estiver "Ao Vivo"
     if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:

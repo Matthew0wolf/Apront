@@ -175,6 +175,12 @@ def import_template(template_id):
 
     # incrementa métricas
     t.downloads = (t.downloads or 0) + 1
+    
+    # Verificar se o membro foi criado corretamente
+    creator_member = RundownMember.query.filter_by(rundown_id=rundown.id, user_id=g.current_user.id).first()
+    print(f"[IMPORT TEMPLATE] Rundown {rundown.id} criado por usuário {g.current_user.id} ({g.current_user.name})")
+    print(f"[IMPORT TEMPLATE] Membro criado: {creator_member is not None}, role={creator_member.role if creator_member else 'N/A'}")
+    
     db.session.commit()
 
     # CRÍTICO: Invalidar cache de TODOS os usuários da empresa
