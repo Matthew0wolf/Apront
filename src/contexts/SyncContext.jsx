@@ -119,14 +119,23 @@ export const SyncProvider = ({ children }) => {
   };
 
   const syncRundownUpdate = async (rundownId, changes) => {
-    if (!token) return;
+    if (!token) {
+      console.warn('⚠️ syncRundownUpdate: Token não disponível');
+      return;
+    }
     
-    console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes });
+    console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes, hasItems: !!changes.items });
     
     // Se houver mudanças em 'items', salvar no banco de dados via API
     if (changes.items) {
       try {
-        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (window.location.hostname.includes('localhost') ? 'http://localhost:5001' : window.location.origin);
+        console.log('💾 [SAVE] Salvando pastas e eventos no banco de dados...', { 
+          rundownId, 
+          itemsCount: changes.items.length,
+          API_BASE_URL,
+          url: `${API_BASE_URL}/api/rundowns/${rundownId}`
+        });
+        
         const response = await fetch(`${API_BASE_URL}/api/rundowns/${rundownId}`, {
           method: 'PATCH',
           headers: {
@@ -136,15 +145,20 @@ export const SyncProvider = ({ children }) => {
           body: JSON.stringify({ items: changes.items })
         });
         
+        console.log('📥 [SAVE] Resposta recebida:', response.status, response.statusText);
+        
         if (response.ok) {
-          console.log('✅ Pastas e eventos salvos no banco de dados');
+          const result = await response.json().catch(() => ({}));
+          console.log('✅ [SAVE] Pastas e eventos salvos no banco de dados:', result);
         } else {
           const errorData = await response.json().catch(() => ({}));
-          console.error('❌ Erro ao salvar no banco:', errorData);
+          console.error('❌ [SAVE] Erro ao salvar no banco:', response.status, errorData);
         }
       } catch (error) {
-        console.error('❌ Erro ao salvar mudanças no banco:', error);
+        console.error('❌ [SAVE] Erro ao salvar mudanças no banco:', error);
       }
+    } else {
+      console.log('ℹ️ [SAVE] Nenhuma mudança em items para salvar');
     }
     
     // Dispara evento imediatamente para o mesmo cliente
