@@ -46,21 +46,25 @@ def get_rundowns():
     result = []
     for r in rundowns:
         folders = []
-        for f in r.folders:
+        # Ordenar folders por ordem
+        sorted_folders = sorted(r.folders, key=lambda f: f.ordem or 0)
+        for f in sorted_folders:
             items = []
-            for i in f.items:
+            # Ordenar items por ordem
+            sorted_items = sorted(f.items, key=lambda i: i.ordem or 0)
+            for i in sorted_items:
                 items.append({
                     'id': str(i.id),
                     'title': i.title,
                     'duration': i.duration,
-                    'description': i.description,
+                    'description': i.description or '',
                     'type': i.type,
                     'status': i.status,
                     'iconType': i.icon_type,
                     'iconData': i.icon_data,
                     'color': i.color,
                     'urgency': i.urgency,
-                    'reminder': i.reminder
+                    'reminder': i.reminder or ''
                 })
             folders.append({
                 'id': str(f.id),
@@ -240,8 +244,9 @@ def update_rundown(rundown_id):
     
     db.session.commit()
     
-    # Invalidar cache do rundown
+    # Invalidar cache do rundown E da lista de rundowns da empresa
     invalidate_rundown_cache(rundown_id)
+    invalidate_company_cache(user.company_id)  # Invalida cache da lista de rundowns
     
     # Notifica todos os clientes conectados sobre as mudanças via WebSocket
     if changes:
