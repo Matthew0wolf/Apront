@@ -34,10 +34,18 @@ export const NotificationsProvider = ({ children }) => {
       setTimeout(() => loadNotifications(), 500);
     };
     
-    // Registrar listener no WebSocket
-    if (websocketManager.socket) {
-      websocketManager.socket.on('new_notification', handleNewNotification);
-    }
+    // Registrar listener no WebSocket (aguarda conexão se necessário)
+    const setupWebSocketListener = () => {
+      if (websocketManager.socket && websocketManager.isConnected) {
+        websocketManager.socket.on('new_notification', handleNewNotification);
+        console.log('✅ Listener de notificações WebSocket registrado');
+      } else {
+        // Aguarda um pouco e tenta novamente se ainda não conectou
+        setTimeout(setupWebSocketListener, 1000);
+      }
+    };
+    
+    setupWebSocketListener();
     
     return () => {
       clearInterval(interval);
