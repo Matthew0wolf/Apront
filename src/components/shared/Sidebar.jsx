@@ -127,7 +127,7 @@ const Sidebar = ({ currentView, onViewChange }) => {
         </Button>
 
         <div className="flex items-center gap-2 sm:gap-4">
-          {(user?.role === 'admin' || user?.role === 'operator') && (
+          {(user?.role === 'admin' || user?.role === 'operator' || user?.role === 'presenter') && (
           <div className="relative" ref={notifRef}>
             <Button
               variant="ghost"
