@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from models import db, Rundown, RundownMember, Folder
+from models import db, Rundown, RundownMember, Folder, Item
 from flask import g
 from auth_utils import jwt_required, payment_required
 from limit_utils import limit_check, update_company_limits, log_usage
@@ -189,8 +189,15 @@ def update_rundown(rundown_id):
     if 'items' in data:
         items_data = data['items']
         
-        # Remove todas as pastas e itens existentes (cascade vai remover os itens automaticamente)
-        Folder.query.filter_by(rundown_id=rundown_id).delete()
+        # Remove todas as pastas e itens existentes
+        # IMPORTANTE: Deletar items primeiro para evitar violação de foreign key
+        existing_folders = Folder.query.filter_by(rundown_id=rundown_id).all()
+        for folder in existing_folders:
+            # Deletar items da pasta primeiro
+            Item.query.filter_by(folder_id=folder.id).delete()
+            # Depois deletar a pasta
+            db.session.delete(folder)
+        db.session.flush()  # Garantir que as deleções sejam processadas
         
         # Cria novas pastas e itens
         for folder_index, folder_data in enumerate(items_data):
