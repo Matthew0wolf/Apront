@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Play, Pause, Square, SkipForward, ArrowLeft, Users, Wifi, WifiOff, Edit, Plus, Folder, Trash2, MousePointerClick, GripVertical, FileText, Monitor, Eye, EyeOff, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { useNotifications } from '@/contexts/NotificationsContext.jsx';
 import { usePresenterConfig } from '@/contexts/PresenterConfigContext.jsx';
 import EditItemDialog from '@/components/dialogs/EditItemDialog';
 import EditFolderDialog from '@/components/dialogs/EditFolderDialog';
@@ -165,7 +164,6 @@ const OperatorView = () => {
   const [editingFolder, setEditingFolder] = useState(null);
   const [editingScript, setEditingScript] = useState(null);
   const { toast } = useToast();
-  const { addNotification } = useNotifications();
 
   // Função para tocar som de alerta
   const playAlertSound = useCallback(async (frequency = 800, duration = 200) => {
@@ -310,22 +308,9 @@ const OperatorView = () => {
       description: newRunningState ? "Rundown está ao vivo!" : "Rundown pausado." 
     });
 
-    // Notificação para equipe
-    if (newRunningState) {
-      if (rundown?.id) {
-        updateRundownStatus(rundown.id, 'Ao Vivo');
-      }
-      addNotification({
-        type: 'success',
-        title: 'Transmissão iniciada',
-        description: `${rundown?.name || 'Rundown'} está AO VIVO`
-      });
-    } else {
-      addNotification({
-        type: 'info',
-        title: 'Transmissão pausada',
-        description: `${rundown?.name || 'Rundown'} foi pausado`
-      });
+    // Atualizar status do rundown
+    if (newRunningState && rundown?.id) {
+      updateRundownStatus(rundown.id, 'Ao Vivo');
     }
   };
 
@@ -342,11 +327,6 @@ const OperatorView = () => {
     if (rundown?.id) {
       updateRundownStatus(rundown.id, 'Parado');
     }
-    addNotification({
-      type: 'warning',
-      title: 'Transmissão encerrada',
-      description: `${rundown?.name || 'Rundown'} foi encerrado`
-    });
   };
 
   const addFolder = () => {
