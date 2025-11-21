@@ -1,6 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Play, Clock, Users, Folder, MoreVertical, ChevronDown, Minus, ExternalLink } from 'lucide-react';
+import { Plus, Search, Play, Clock, Users, Folder, MoreVertical, ChevronDown, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
@@ -289,59 +289,6 @@ const ProjectsView = () => {
         )}
       </div>
 
-      {/* Painel Flutuante "Ao Vivo" */}
-      <AnimatePresence>
-        {liveProject && (
-          <motion.div
-            initial={{ opacity: 0, x: 100 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 100 }}
-            className="fixed bottom-6 right-6 w-96 bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
-          >
-            {/* Header */}
-            <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                <span className="font-semibold">Ao Vivo ({liveProject.name})</span>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 hover:bg-white/20 text-white"
-                onClick={() => {/* Minimizar */}}
-              >
-                <Minus className="w-4 h-4" />
-              </Button>
-            </div>
-
-            {/* Conteúdo */}
-            <div className="p-6">
-              <h3 className="text-2xl font-bold mb-2">Pré-Jogo</h3>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-sm text-muted-foreground">Restante</span>
-                <span className="text-xl font-bold">13:49</span>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="h-2 bg-secondary rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-green-500" style={{ width: '65%' }}></div>
-              </div>
-
-              {/* Informações */}
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-4 h-4" />
-                  <span>{liveProject.duration || '3h 30min'}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Users className="w-4 h-4" />
-                  <span>{liveProject.members?.length || 2} membros</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Dialog Criar/Editar Projeto */}
       <CreateProjectDialog
