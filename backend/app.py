@@ -1,11 +1,21 @@
 
-
+# Configura encoding UTF-8 para Windows (resolve erro com emojis Unicode)
+import sys
+import io
+if sys.platform == 'win32':
+    # Configura stdout e stderr para UTF-8 no Windows
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    else:
+        # Fallback para versões antigas do Python
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_compress import Compress
 from models import db
-import sys
 sys.path.insert(0, 'utils')
 from cors_config import enable_cors
 from websocket_server import socketio
@@ -84,6 +94,7 @@ else:
     print(f"🔍 Ambiente detectado: DESENVOLVIMENTO LOCAL")
 
 # Se DATABASE_URL contém localhost, SEMPRE rejeita em produção
+# Em desenvolvimento local, ignora localhost e usa SQLite (mais simples para dev)
 # (mesmo que IS_PRODUCTION não detecte, se estiver no Railway, localhost não funciona)
 if DATABASE_URL:
     if 'localhost' in DATABASE_URL or '127.0.0.1' in DATABASE_URL:
@@ -93,8 +104,10 @@ if DATABASE_URL:
             print(f"   Tentando outras fontes...")
             DATABASE_URL = None  # Força tentar outras fontes
         else:
-            # Em desenvolvimento local, localhost é OK
-            print(f"ℹ️  Usando localhost (desenvolvimento local)")
+            # Em desenvolvimento local, ignora localhost e usa SQLite (mais simples)
+            print(f"ℹ️  DATABASE_URL contém 'localhost' - ignorando em desenvolvimento local")
+            print(f"   Usando SQLite automaticamente (mais simples para desenvolvimento)")
+            DATABASE_URL = None  # Força usar SQLite em desenvolvimento local
 
 # Se não tiver DATABASE_URL válida, tenta construir a partir de variáveis individuais do Railway
 if not DATABASE_URL:

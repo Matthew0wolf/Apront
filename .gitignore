@@ -84,3 +84,4 @@ AMBIENTES_COMPATIBILIDADE.md
 ATUALIZAR_CODIGO_E_REBUILD.md
 backend/__pycache__/app.cpython-312.pyc
 ATUALIZAR_FRONTEND_VPS_COMPLETO.md
+backend/.env
