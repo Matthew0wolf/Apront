@@ -22,19 +22,28 @@ from websocket_server import socketio
 import os
 from dotenv import load_dotenv
 
-# Carrega .env primeiro (sem sobrescrever variáveis já definidas) para detectar FLASK_ENV
-# Isso permite detectar produção no VPS via FLASK_ENV do .env
-load_dotenv(override=False)  # override=False: não sobrescreve variáveis já definidas (ex: docker-compose)
-
-# Detecta se está em produção (Railway ou VPS/Docker)
-IS_PRODUCTION = bool(
+# Carrega .env primeiro para detectar FLASK_ENV
+# Detecta se está em produção ANTES de carregar .env para decidir override
+_is_production_env = bool(
     os.getenv('RAILWAY_ENVIRONMENT') or 
     os.getenv('RAILWAY_ENVIRONMENT_NAME') or
     os.getenv('RAILWAY_PROJECT_ID') or 
     os.getenv('RAILWAY_SERVICE_NAME') or
     os.getenv('RAILWAY_SERVICE_ID') or
-    os.getenv('FLASK_ENV') == 'production'  # VPS/Docker
+    os.getenv('FLASK_ENV') == 'production'
 )
+
+# Em desenvolvimento: .env DEVE sobrescrever variáveis do sistema (override=True)
+# Em produção (Docker): variáveis do docker-compose têm prioridade (override=False)
+if _is_production_env:
+    load_dotenv(override=False)  # Não sobrescreve em produção (docker-compose tem prioridade)
+else:
+    # Em desenvolvimento: FORÇA sobrescrever variáveis do sistema com o .env
+    load_dotenv(override=True)  # override=True garante que .env sobrescreva variáveis do sistema
+
+# Detecta se está em produção (Railway ou VPS/Docker)
+# Usa a variável já detectada antes do load_dotenv
+IS_PRODUCTION = _is_production_env
 
 # Log sobre carregamento de .env
 if IS_PRODUCTION:
@@ -63,14 +72,22 @@ from routes.notifications import notifications_bp
 app = Flask(__name__)
 
 # Configuração de Banco de Dados
-# Tenta usar PostgreSQL (via variável de ambiente), senão usa SQLite
+# Tenta usar PostgreSQL (via variável de ambiente DATABASE_URL)
+# Em desenvolvimento local: configure DATABASE_URL no .env para usar PostgreSQL local (Docker)
 # Em produção (Railway/VPS): configure DATABASE_URL nas variáveis de ambiente
-# Em desenvolvimento local: deixe DATABASE_URL vazio para usar SQLite
+# Se não houver DATABASE_URL: usa SQLite apenas em desenvolvimento (fallback)
 
 # IS_PRODUCTION já foi definido acima (antes de carregar .env)
 
 # Railway pode fornecer DATABASE_URL ou variáveis individuais
 DATABASE_URL = os.getenv('DATABASE_URL')
+
+# DEBUG: Mostra qual DATABASE_URL está sendo usada
+if DATABASE_URL and not IS_PRODUCTION:
+    # Mostra apenas host:port/database para debug em desenvolvimento
+    if '@' in DATABASE_URL:
+        db_display = DATABASE_URL.split('@')[1]
+        print(f"🔍 DATABASE_URL carregada: {db_display}")
 
 # DEBUG: Mostra informações sobre o ambiente
 if IS_PRODUCTION:
@@ -93,9 +110,8 @@ if IS_PRODUCTION:
 else:
     print(f"🔍 Ambiente detectado: DESENVOLVIMENTO LOCAL")
 
-# Se DATABASE_URL contém localhost, SEMPRE rejeita em produção
-# Em desenvolvimento local, ignora localhost e usa SQLite (mais simples para dev)
-# (mesmo que IS_PRODUCTION não detecte, se estiver no Railway, localhost não funciona)
+# Se DATABASE_URL contém localhost, aceita apenas em desenvolvimento
+# Em produção, SEMPRE rejeita localhost (não funciona no Railway/VPS)
 if DATABASE_URL:
     if 'localhost' in DATABASE_URL or '127.0.0.1' in DATABASE_URL:
         if IS_PRODUCTION:
@@ -104,10 +120,9 @@ if DATABASE_URL:
             print(f"   Tentando outras fontes...")
             DATABASE_URL = None  # Força tentar outras fontes
         else:
-            # Em desenvolvimento local, ignora localhost e usa SQLite (mais simples)
-            print(f"ℹ️  DATABASE_URL contém 'localhost' - ignorando em desenvolvimento local")
-            print(f"   Usando SQLite automaticamente (mais simples para desenvolvimento)")
-            DATABASE_URL = None  # Força usar SQLite em desenvolvimento local
+            # Em desenvolvimento local, PERMITE usar PostgreSQL local (Docker)
+            print(f"✅ DATABASE_URL com localhost detectada - usando PostgreSQL local (Docker)")
+            # DATABASE_URL permanece como está para usar PostgreSQL local
 
 # Se não tiver DATABASE_URL válida, tenta construir a partir de variáveis individuais do Railway
 if not DATABASE_URL:
@@ -173,12 +188,13 @@ if DATABASE_URL:
         'pool_pre_ping': True,
     }
 else:
-    # SQLite para desenvolvimento local
+    # SQLite apenas se não houver DATABASE_URL configurada (fallback para dev)
     if IS_PRODUCTION:
         print("❌ ERRO: Tentando usar SQLite em produção!")
-        print("   Configure DATABASE_URL corretamente no Railway")
+        print("   Configure DATABASE_URL corretamente no Railway/VPS")
         raise ValueError("SQLite não pode ser usado em produção")
-    print("📦 Usando SQLite (desenvolvimento local)")
+    print("📦 Usando SQLite (desenvolvimento local - fallback)")
+    print("   💡 Dica: Configure DATABASE_URL no .env para usar PostgreSQL local")
     sqlite_path = os.path.join(os.path.dirname(__file__), 'rundowns.db')
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{sqlite_path}'
 
