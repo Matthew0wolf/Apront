@@ -122,12 +122,23 @@ const PresenterView = () => {
     if (projectId) {
       console.log('🔗 PresenterView: Conectando ao rundown:', projectId);
       setActiveRundownId(projectId);
+      
+      // CRÍTICO: Solicita estado atual do timer após conectar
+      // Aguarda um pouco para garantir que o WebSocket está conectado
+      const requestTimerState = setTimeout(() => {
+        console.log('📡 PresenterView: Solicitando estado atual do timer...');
+        // Dispara evento para solicitar estado (o operador responderá via WebSocket)
+        window.dispatchEvent(new CustomEvent('requestTimerState', {
+          detail: { rundownId: projectId }
+        }));
+      }, 1000); // Aguarda 1 segundo após conectar
+      
+      return () => {
+        clearTimeout(requestTimerState);
+        console.log('🔗 PresenterView: Desconectando do rundown:', projectId);
+        setActiveRundownId(null);
+      };
     }
-    
-    return () => {
-      console.log('🔗 PresenterView: Desconectando do rundown:', projectId);
-      setActiveRundownId(null);
-    };
   }, [projectId, setActiveRundownId]);
 
   const currentItem = useMemo(() => rundown?.items[currentItemIndex.folderIndex]?.children[currentItemIndex.itemIndex], [rundown, currentItemIndex]);

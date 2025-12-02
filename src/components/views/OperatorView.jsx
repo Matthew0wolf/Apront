@@ -292,6 +292,25 @@ const OperatorView = () => {
     };
   }, [projectId, setActiveRundownId]);
 
+  // CRÍTICO: Responde quando apresentador solicita estado do timer
+  useEffect(() => {
+    const handleRequestTimerState = (event) => {
+      const { rundownId } = event.detail;
+      if (String(rundownId) === String(projectId) && rundown?.id) {
+        console.log('📡 OperatorView: Apresentador solicitou estado do timer, enviando...', {
+          isRunning,
+          timeElapsed,
+          currentItemIndex
+        });
+        // Envia o estado atual do timer
+        syncTimerState(isRunning, timeElapsed, currentItemIndex);
+      }
+    };
+
+    window.addEventListener('requestTimerState', handleRequestTimerState);
+    return () => window.removeEventListener('requestTimerState', handleRequestTimerState);
+  }, [projectId, rundown?.id, isRunning, timeElapsed, currentItemIndex, syncTimerState]);
+
   useEffect(() => {
     const connectionInterval = setInterval(() => setIsOnline(Math.random() > 0.1), 5000);
     return () => clearInterval(connectionInterval);

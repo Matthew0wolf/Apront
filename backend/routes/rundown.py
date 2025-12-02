@@ -210,9 +210,10 @@ def update_rundown(rundown_id):
     
     print(f"[UPDATE RUNDOWN] ✅ PERMISSÃO CONCEDIDA para usuário {user.id}")
     
-    # Bloquear edição se rundown estiver "Ao Vivo"
-    if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
-        return jsonify({'error': 'Não é possível editar um rundown que está ao vivo'}), 403
+    # NOTA: Removido bloqueio de edição quando está "ao vivo"
+    # Operadores devem poder editar mesmo durante transmissão ao vivo
+    # para fazer ajustes em tempo real se necessário
+    
     data = request.get_json()
     
     # Armazena as mudanças para notificar via WebSocket
@@ -506,9 +507,9 @@ def delete_rundown(rundown_id):
     
     print(f"[DELETE] Rundown encontrado: {rundown.name} (ID: {rundown.id}, Empresa: {rundown.company_id})")
     
-    # Bloquear deleção se rundown estiver "Ao Vivo"
-    if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
-        return jsonify({'error': 'Não é possível deletar um rundown que está ao vivo'}), 403
+    # NOTA: Removido bloqueio de deleção quando está "ao vivo"
+    # Operadores devem poder deletar mesmo durante transmissão ao vivo
+    # se necessário (embora não seja recomendado)
     
     try:
         # Deletar membros do rundown primeiro (cascade deve fazer isso, mas garantimos)
@@ -583,9 +584,8 @@ def update_rundown_members(rundown_id):
     if not rundown:
         return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
 
-    # Bloquear alteração de membros se rundown estiver "Ao Vivo"
-    if rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']:
-        return jsonify({'error': 'Não é possível alterar membros de um rundown que está ao vivo'}), 403
+    # NOTA: Removido bloqueio de alteração de membros quando está "ao vivo"
+    # Operadores devem poder gerenciar membros mesmo durante transmissão ao vivo
 
     data = request.get_json() or {}
     members = data.get('members', [])

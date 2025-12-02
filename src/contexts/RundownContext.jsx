@@ -636,6 +636,24 @@ export const RundownProvider = ({ children }) => {
     console.log('🔄 Timer state changed:', { isTimerRunning, timeElapsed, currentItemIndex });
   }, [isTimerRunning, timeElapsed, currentItemIndex]);
 
+  // CRÍTICO: Reenvia estado do timer periodicamente quando está rodando
+  // Isso garante que apresentadores que entram depois recebam o estado atual
+  useEffect(() => {
+    if (!isTimerRunning || !activeRundown?.id) return;
+    
+    // Reenvia o estado a cada 3 segundos quando está rodando
+    const syncInterval = setInterval(() => {
+      console.log('🔄 Reenviando estado do timer periodicamente para sincronização:', {
+        isRunning: isTimerRunning,
+        timeElapsed,
+        currentItemIndex
+      });
+      syncTimerState(isTimerRunning, timeElapsed, currentItemIndex);
+    }, 3000); // A cada 3 segundos
+    
+    return () => clearInterval(syncInterval);
+  }, [isTimerRunning, timeElapsed, currentItemIndex, activeRundown?.id, syncTimerState]);
+
   return (
     <RundownContext.Provider value={value}>
       {children}
