@@ -297,13 +297,24 @@ const OperatorView = () => {
     const handleRequestTimerState = (event) => {
       const { rundownId } = event.detail;
       if (String(rundownId) === String(projectId) && rundown?.id) {
-        console.log('📡 OperatorView: Apresentador solicitou estado do timer, enviando...', {
+        console.log('📡 OperatorView: Apresentador solicitou estado do timer, enviando IMEDIATAMENTE...', {
           isRunning,
           timeElapsed,
-          currentItemIndex
+          currentItemIndex,
+          rundownId: rundown.id
         });
-        // Envia o estado atual do timer
+        // CRÍTICO: Envia o estado atual do timer IMEDIATAMENTE
+        // Não aguarda nada, responde na hora para que o apresentador receba o estado correto
         syncTimerState(isRunning, timeElapsed, currentItemIndex);
+        
+        // Se o timer está rodando, também envia novamente após um pequeno delay
+        // para garantir que o apresentador receba mesmo se houver algum problema de timing
+        if (isRunning) {
+          setTimeout(() => {
+            console.log('📡 OperatorView: Reenviando estado do timer (timer está rodando)...');
+            syncTimerState(isRunning, timeElapsed, currentItemIndex);
+          }, 500);
+        }
       }
     };
 

@@ -125,16 +125,32 @@ const PresenterView = () => {
       
       // CRÍTICO: Solicita estado atual do timer após conectar
       // Aguarda um pouco para garantir que o WebSocket está conectado
-      const requestTimerState = setTimeout(() => {
-        console.log('📡 PresenterView: Solicitando estado atual do timer...');
-        // Dispara evento para solicitar estado (o operador responderá via WebSocket)
+      // Solicita múltiplas vezes para garantir que recebe o estado
+      const requestTimerState1 = setTimeout(() => {
+        console.log('📡 PresenterView: Solicitando estado atual do timer (tentativa 1)...');
         window.dispatchEvent(new CustomEvent('requestTimerState', {
           detail: { rundownId: projectId }
         }));
       }, 1000); // Aguarda 1 segundo após conectar
       
+      const requestTimerState2 = setTimeout(() => {
+        console.log('📡 PresenterView: Solicitando estado atual do timer (tentativa 2)...');
+        window.dispatchEvent(new CustomEvent('requestTimerState', {
+          detail: { rundownId: projectId }
+        }));
+      }, 2500); // Aguarda 2.5 segundos (segunda tentativa)
+      
+      const requestTimerState3 = setTimeout(() => {
+        console.log('📡 PresenterView: Solicitando estado atual do timer (tentativa 3)...');
+        window.dispatchEvent(new CustomEvent('requestTimerState', {
+          detail: { rundownId: projectId }
+        }));
+      }, 4000); // Aguarda 4 segundos (terceira tentativa)
+      
       return () => {
-        clearTimeout(requestTimerState);
+        clearTimeout(requestTimerState1);
+        clearTimeout(requestTimerState2);
+        clearTimeout(requestTimerState3);
         console.log('🔗 PresenterView: Desconectando do rundown:', projectId);
         setActiveRundownId(null);
       };

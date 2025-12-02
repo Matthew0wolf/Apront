@@ -20,16 +20,77 @@ const PatternDecorator = () => {
   );
 };
 
+// Componente para linhas decorativas completas (conforme SVG do Figma)
+// Baseado no SVG fornecido: retângulo completo com linhas nos 4 lados e cantos decorativos
+const FrameLinesDecorator = () => {
+  // Dimensões baseadas no SVG fornecido - ajustadas para caber na tela
+  const offset = 50; // Offset do retângulo principal (reduzido de 66.5px para 50px)
+  const cornerSize = 15; // Tamanho do "+" no canto
+  
+  return (
+    <div className="absolute inset-0 pointer-events-none z-0">
+      {/* Retângulo principal completo - bordas nos 4 lados */}
+      {/* Borda superior */}
+      <div className="absolute" style={{ top: `${offset}px`, left: `${offset}px`, right: `${offset}px`, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Borda inferior */}
+      <div className="absolute" style={{ bottom: `${offset}px`, left: `${offset}px`, right: `${offset}px`, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Borda esquerda */}
+      <div className="absolute" style={{ top: `${offset}px`, bottom: `${offset}px`, left: `${offset}px`, width: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Borda direita */}
+      <div className="absolute" style={{ top: `${offset}px`, bottom: `${offset}px`, right: `${offset}px`, width: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      
+      {/* CANTO SUPERIOR ESQUERDO - Forma "+" (cruz) */}
+      {/* Linha horizontal estendendo para fora (esquerda) */}
+      <div className="absolute" style={{ top: `${offset}px`, left: '0', width: `${offset + 1}px`, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha vertical estendendo para fora (cima) */}
+      <div className="absolute" style={{ top: '0', left: `${offset}px`, width: '1px', height: `${offset + 1}px`, backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha horizontal do "+" (parte interna) */}
+      <div className="absolute" style={{ top: `${offset}px`, left: `${offset - cornerSize/2}px`, width: `${cornerSize}px`, height: '1px', backgroundColor: 'white' }} />
+      {/* Linha vertical do "+" (parte interna) */}
+      <div className="absolute" style={{ top: `${offset - cornerSize/2}px`, left: `${offset}px`, width: '1px', height: `${cornerSize}px`, backgroundColor: 'white' }} />
+      
+      {/* CANTO SUPERIOR DIREITO - Forma "+" (cruz) */}
+      {/* Linha horizontal estendendo para fora (direita) */}
+      <div className="absolute" style={{ top: `${offset}px`, right: '0', width: `${offset + 1}px`, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha vertical estendendo para fora (cima) */}
+      <div className="absolute" style={{ top: '0', right: `${offset}px`, width: '1px', height: `${offset + 1}px`, backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha horizontal do "+" (parte interna) */}
+      <div className="absolute" style={{ top: `${offset}px`, right: `${offset - cornerSize/2}px`, width: `${cornerSize}px`, height: '1px', backgroundColor: 'white' }} />
+      {/* Linha vertical do "+" (parte interna) */}
+      <div className="absolute" style={{ top: `${offset - cornerSize/2}px`, right: `${offset}px`, width: '1px', height: `${cornerSize}px`, backgroundColor: 'white' }} />
+      
+      {/* CANTO INFERIOR ESQUERDO - Forma "+" (cruz) */}
+      {/* Linha horizontal estendendo para fora (esquerda) */}
+      <div className="absolute" style={{ bottom: `${offset}px`, left: '0', width: `${offset + 1}px`, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha vertical estendendo para fora (baixo) */}
+      <div className="absolute" style={{ bottom: '0', left: `${offset}px`, width: '1px', height: `${offset + 1}px`, backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha horizontal do "+" (parte interna) */}
+      <div className="absolute" style={{ bottom: `${offset}px`, left: `${offset - cornerSize/2}px`, width: `${cornerSize}px`, height: '1px', backgroundColor: 'white' }} />
+      {/* Linha vertical do "+" (parte interna) */}
+      <div className="absolute" style={{ bottom: `${offset - cornerSize/2}px`, left: `${offset}px`, width: '1px', height: `${cornerSize}px`, backgroundColor: 'white' }} />
+      
+      {/* CANTO INFERIOR DIREITO - Forma "+" (cruz) */}
+      {/* Linha horizontal estendendo para fora (direita) */}
+      <div className="absolute" style={{ bottom: `${offset}px`, right: '0', width: `${offset + 1}px`, height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha vertical estendendo para fora (baixo) */}
+      <div className="absolute" style={{ bottom: '0', right: `${offset}px`, width: '1px', height: `${offset + 1}px`, backgroundColor: 'rgba(255, 255, 255, 0.2)' }} />
+      {/* Linha horizontal do "+" (parte interna) */}
+      <div className="absolute" style={{ bottom: `${offset}px`, right: `${offset - cornerSize/2}px`, width: `${cornerSize}px`, height: '1px', backgroundColor: 'white' }} />
+      {/* Linha vertical do "+" (parte interna) */}
+      <div className="absolute" style={{ bottom: `${offset - cornerSize/2}px`, right: `${offset}px`, width: '1px', height: `${cornerSize}px`, backgroundColor: 'white' }} />
+    </div>
+  );
+};
+
 // Ícone do Operador - Carregado do projeto (sem dependência do Figma)
 // Ícone salvo localmente em /public/icons/operador-icon.png
-// Dimensões exatas do Figma: 149.367px x 149.367px
 const OperadorIcon = ({ className }) => {
   return (
     <img 
       src="/icons/operador-icon.png" 
       alt="Operador"
       className={className}
-      style={{ width: '149.367px', height: '149.367px' }}
+      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
       onError={(e) => {
         // Fallback caso a imagem não carregue
         console.error('Erro ao carregar ícone do Operador');
@@ -42,12 +103,12 @@ const OperadorIcon = ({ className }) => {
 const ApresentadorIcon = ({ className }) => {
   return (
     <svg 
-      width="150" 
-      height="150" 
       viewBox="0 0 150 150" 
       fill="none" 
       xmlns="http://www.w3.org/2000/svg"
       className={className}
+      style={{ width: '100%', height: '100%' }}
+      preserveAspectRatio="xMidYMid meet"
     >
       <path d="M149.367 0H0V76.3069H149.367V0Z" fill="#FFFCFD"/>
       <path d="M0 86.0484V106.803H63.6641V123.39H87.6719V106.803H149.367V86.0484H0Z" fill="#FFFCFD"/>
@@ -218,7 +279,7 @@ const Card = ({ title, description, iconSrc, iconComponent: IconComponent, onCli
       onHoverEnd={() => setIsHovered(false)}
       onClick={onClick}
       className={cn(
-        "relative w-full max-w-[488px] h-auto min-h-[320px] sm:min-h-[400px] md:h-[488px] md:w-[488px] overflow-hidden cursor-pointer group",
+        "relative w-full max-w-[400px] h-auto min-h-[280px] sm:min-h-[320px] md:h-[360px] md:w-[400px] overflow-hidden cursor-pointer group",
         "bg-[rgba(23,23,23,0.5)]",
         "transition-all duration-300 hover:bg-[rgba(23,23,23,0.7)]",
         className
@@ -240,26 +301,27 @@ const Card = ({ title, description, iconSrc, iconComponent: IconComponent, onCli
       {/* Canto superior direito (rotacionado 90deg) */}
       <div className="absolute top-0 right-0 w-[15px] h-[15px] border-t border-r border-[rgba(255,252,252,1)] pointer-events-none" />
       
-      <div className="relative z-10 flex flex-col items-center justify-center text-center h-full p-6 sm:p-8 py-4 sm:py-0">
+      <div className="relative z-10 flex flex-col items-center justify-center text-center h-full p-4 sm:p-6 py-3 sm:py-0">
         <motion.div
           animate={{ scale: isHovered ? 1.1 : 1 }}
           transition={{ type: 'spring', stiffness: 300 }}
-          className="mb-4 sm:mb-8"
+          className="mb-2 sm:mb-4 flex items-center justify-center"
+          style={{ width: '120px', height: '120px', minHeight: '120px' }}
         >
           {IconComponent ? (
-            <IconComponent className="w-20 h-20 sm:w-[120px] sm:h-[120px] md:w-[149px] md:h-[149px]" />
+            <IconComponent className="w-full h-full" />
           ) : (
             <img 
               src={iconSrc} 
               alt={title}
-              className="w-20 h-20 sm:w-[120px] sm:h-[120px] md:w-[149px] md:h-[149px] object-contain"
+              className="w-full h-full object-contain"
             />
           )}
         </motion.div>
-        <h2 className="text-3xl sm:text-5xl md:text-[66.5px] font-extrabold text-white mb-2 sm:mb-4 leading-tight md:leading-[56.9px]">
+        <h2 className="text-2xl sm:text-4xl md:text-[52px] font-extrabold text-white mb-1 sm:mb-2 leading-tight">
           {title}
         </h2>
-        <p className="text-base sm:text-xl md:text-[32.7px] font-normal text-white leading-normal md:leading-[35.8px] max-w-full md:max-w-[355px] px-2">
+        <p className="text-sm sm:text-lg md:text-[26px] font-normal text-white leading-normal max-w-full md:max-w-[320px] px-2">
           {description}
         </p>
       </div>
@@ -330,32 +392,36 @@ const RoleSelectionView = () => {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#080808] text-white flex flex-col items-center justify-center p-4 overflow-hidden relative">
+    <div className="h-screen w-full bg-[#080808] text-white flex flex-col items-center justify-center p-4 overflow-hidden relative">
       <PatternDecorator />
+      
+      {/* Linhas decorativas completas (retângulo com 4 lados e cantos) */}
+      <FrameLinesDecorator />
       
       <motion.div
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="flex flex-col items-center justify-center relative z-10"
+        className="flex flex-col items-center justify-center relative z-10 w-full h-full"
+        style={{ padding: '50px', height: '100vh', overflow: 'hidden' }}
       >
-        {/* Header - Conforme Figma */}
-        <motion.div variants={itemVariants} className="text-center mb-8 sm:mb-12 md:mb-[64px] px-4">
-          <p className="text-lg sm:text-2xl md:text-[34.8px] font-medium text-white mb-2 sm:mb-4 leading-tight md:leading-[63.5px]">
+        {/* Header - Conforme Figma - Espaçamentos reduzidos */}
+        <motion.div variants={itemVariants} className="text-center mb-4 sm:mb-6 md:mb-8 px-4 w-full">
+          <p className="text-base sm:text-xl md:text-[28px] font-medium text-white mb-1 sm:mb-2 leading-tight">
             Projeto
           </p>
-          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-[77.5px] font-bold text-white mb-2 sm:mb-4 leading-tight md:leading-[48.4px] tracking-tight">
+          <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-[60px] font-bold text-white mb-1 sm:mb-2 leading-tight tracking-tight">
             {project.name}
           </h1>
-          <p className="text-xl sm:text-3xl md:text-4xl lg:text-[55.7px] font-light text-white leading-tight md:leading-[63.5px]">
+          <p className="text-lg sm:text-2xl md:text-3xl lg:text-[42px] font-light text-white leading-tight">
             Como você quer entrar?
           </p>
         </motion.div>
 
-        {/* Cards de Seleção - Conforme Figma */}
+        {/* Cards de Seleção - Conforme Figma - Centralizados horizontalmente - Espaçamentos reduzidos */}
         <motion.div
           variants={containerVariants}
-          className="flex flex-col md:flex-row gap-6 sm:gap-8 md:gap-[56px] mb-8 sm:mb-12 md:mb-[64px] w-full max-w-7xl px-4"
+          className="flex flex-col md:flex-row gap-4 sm:gap-6 md:gap-8 mb-4 sm:mb-6 md:mb-8 w-full px-4 justify-center items-center flex-1"
         >
           {/* Mostra opção de Operador apenas se tiver permissão */}
           {(user?.role === 'admin' || user?.can_operate) && (
@@ -380,15 +446,22 @@ const RoleSelectionView = () => {
         </motion.div>
 
         {/* Botões Voltar e Modo Ensaio - Conforme Figma */}
-        <motion.div variants={itemVariants} className="px-4">
-          <div className="flex items-center justify-center gap-4 flex-wrap">
-            <VoltarButton onClick={() => navigate('/projects')} />
-            {/* Modo Ensaio disponível para apresentadores */}
+        {/* Layout conforme Figma: Voltar centralizado, Modo Ensaio à direita na mesma linha */}
+        <motion.div variants={itemVariants} className="w-full mt-auto" style={{ paddingLeft: '50px', paddingRight: '50px' }}>
+          <div className="flex items-center justify-center relative w-full" style={{ minHeight: '47.327px' }}>
+            {/* Botão Voltar centralizado (horizontalmente) */}
+            <div className="flex items-center justify-center absolute left-1/2 transform -translate-x-1/2">
+              <VoltarButton onClick={() => navigate('/projects')} />
+            </div>
+            
+            {/* Botão Modo Ensaio posicionado à direita, bem próximo à linha decorativa (na mesma linha do Voltar) */}
             {(user?.role === 'admin' || user?.can_present) && (
-              <ModoEnsaioButton onClick={() => {
-                loadRundownState(projectId);
-                navigate(`/project/${projectId}/practice`);
-              }} />
+              <div className="absolute flex items-center justify-end" style={{ right: '0' }}>
+                <ModoEnsaioButton onClick={() => {
+                  loadRundownState(projectId);
+                  navigate(`/project/${projectId}/practice`);
+                }} />
+              </div>
             )}
           </div>
         </motion.div>

@@ -133,10 +133,17 @@ export const RundownProvider = ({ children }) => {
         }
         
         if (changes.isRunning !== undefined) {
+          console.log('✅ RundownContext: Atualizando isRunning via WebSocket:', changes.isRunning);
           setIsTimerRunning(changes.isRunning);
+          // CRÍTICO: Se o timer está rodando, também atualiza o tempo decorrido
+          if (changes.isRunning && changes.timeElapsed !== undefined) {
+            console.log('✅ RundownContext: Atualizando timeElapsed via WebSocket:', changes.timeElapsed);
+            setTimeElapsed(changes.timeElapsed);
+          }
         }
         
-        if (changes.timeElapsed !== undefined) {
+        if (changes.timeElapsed !== undefined && !changes.isRunning) {
+          // Se não está rodando, ainda atualiza o tempo se fornecido
           setTimeElapsed(changes.timeElapsed);
         }
         
@@ -316,11 +323,25 @@ export const RundownProvider = ({ children }) => {
         setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
       }
       
-      const running = savedIsRunning ? JSON.parse(savedIsRunning) : false;
-      setIsTimerRunning(running);
+      // CRÍTICO: NÃO carregar isRunning do localStorage ao entrar
+      // O estado do timer deve vir APENAS do operador via WebSocket
+      // Isso evita que apresentadores vejam "standby" quando o operador já está "ao vivo"
+      // O estado será atualizado via WebSocket quando o operador enviar
+      setIsTimerRunning(false); // Inicia em standby, será atualizado via WebSocket
+      console.log('⚠️ loadRundownState: isRunning iniciado como false (será atualizado via WebSocket)');
+      
       setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
       
       console.log('✅ loadRundownState: Rundown carregado com sucesso:', { id: rundownData.id, name: rundownData.name });
+      
+      // CRÍTICO: Após carregar, solicita estado atual do operador
+      // Aguarda um pouco para garantir que o WebSocket está conectado
+      setTimeout(() => {
+        console.log('📡 loadRundownState: Solicitando estado atual do timer do operador...');
+        window.dispatchEvent(new CustomEvent('requestTimerState', {
+          detail: { rundownId: rundownIdStr }
+        }));
+      }, 1500); // Aguarda 1.5 segundos após carregar
     } catch (error) {
       console.error("❌ loadRundownState: Erro ao carregar estado:", error);
       // Em caso de erro, sempre usa dados do servidor
