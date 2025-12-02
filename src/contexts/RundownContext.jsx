@@ -12,6 +12,11 @@ export const useRundown = () => useContext(RundownContext);
 // Ref global para bloquear atualizações WebSocket durante drag
 export const isDraggingRef = { current: false };
 
+// Disponibiliza globalmente para acesso em outros contextos
+if (typeof window !== 'undefined') {
+  window.isDraggingRef = isDraggingRef;
+}
+
 
 export const RundownProvider = ({ children }) => {
   const [rundowns, setRundowns] = useState([]);
@@ -146,6 +151,26 @@ export const RundownProvider = ({ children }) => {
       }
     };
 
+    // Listener para atualização de IDs (quando backend retorna IDs reais após salvar)
+    const handleRundownItemsUpdated = (event) => {
+      const { rundownId, items } = event.detail;
+      console.log('🔄 RundownContext: Atualizando IDs temporários com IDs reais:', { rundownId, itemsCount: items?.length });
+      
+      if (String(activeRundown?.id) === String(rundownId) && items && Array.isArray(items)) {
+        console.log('✅ RundownContext: Atualizando rundown ativo com IDs reais do banco');
+        setActiveRundown(prev => ({ ...prev, items: items }));
+        
+        // Também atualiza na lista de rundowns
+        setRundowns(prev => prev.map(r => 
+          String(r.id) === String(rundownId) 
+            ? { ...r, items: items }
+            : r
+        ));
+        
+        console.log('✅ RundownContext: IDs temporários atualizados com IDs reais');
+      }
+    };
+
     // Listener para reordenação de itens
     const handleItemReordered = (event) => {
       const { rundownId, folderIndex, newOrder } = event.detail;
@@ -178,11 +203,13 @@ export const RundownProvider = ({ children }) => {
     window.addEventListener('rundownSync', handleRundownSync);
     window.addEventListener('itemReordered', handleItemReordered);
     window.addEventListener('folderReordered', handleFolderReordered);
+    window.addEventListener('rundownItemsUpdated', handleRundownItemsUpdated);
 
     return () => {
       window.removeEventListener('rundownSync', handleRundownSync);
       window.removeEventListener('itemReordered', handleItemReordered);
       window.removeEventListener('folderReordered', handleFolderReordered);
+      window.removeEventListener('rundownItemsUpdated', handleRundownItemsUpdated);
     };
   }, [activeRundown, calculateElapsedTimeForIndex, setTimeElapsed, setIsTimerRunning]);
 

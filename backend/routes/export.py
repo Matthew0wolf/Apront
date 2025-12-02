@@ -166,16 +166,54 @@ def import_rundown():
                 )
                 db.session.add(new_item)
         
-        # Adicionar o usuário como membro/owner do rundown importado
+        # CRÍTICO: Vincular o rundown a TODOS os membros da empresa (como em templates.py)
+        # Isso garante que todos os usuários da empresa possam ver e editar o rundown importado
         from models import RundownMember
-        rundown_member = RundownMember(rundown_id=new_rundown.id, user_id=current_user.id, role='owner')
-        db.session.add(rundown_member)
-        db.session.flush()  # Garantir que o membro seja criado antes do commit
+        try:
+            company_users = User.query.filter_by(company_id=current_user.company_id).all()
+            for company_user in company_users:
+                # Verifica se já existe vínculo
+                existing = RundownMember.query.filter_by(rundown_id=new_rundown.id, user_id=company_user.id).first()
+                if not existing:
+                    role = 'owner' if company_user.id == current_user.id else 'member'
+                    db.session.add(RundownMember(rundown_id=new_rundown.id, user_id=company_user.id, role=role))
+                    print(f"[IMPORT] Usuário {company_user.id} ({company_user.name}) vinculado como {role}")
+        except Exception as e:
+            print(f"[IMPORT] ⚠️ Erro ao vincular usuários da empresa: {e}")
+            # Se der erro, pelo menos vincula ao criador
+            try:
+                rundown_member = RundownMember(rundown_id=new_rundown.id, user_id=current_user.id, role='owner')
+                db.session.add(rundown_member)
+                print(f"[IMPORT] Apenas criador vinculado como owner")
+            except Exception:
+                pass
         
+        db.session.flush()  # Garantir que os membros sejam criados antes do commit
+        
+        # Verificar se o membro foi criado corretamente
+        creator_member = RundownMember.query.filter_by(rundown_id=new_rundown.id, user_id=current_user.id).first()
         print(f"[IMPORT] Rundown {new_rundown.id} importado por usuário {current_user.id} ({current_user.name})")
-        print(f"[IMPORT] Membro criado: rundown_id={rundown_member.rundown_id}, user_id={rundown_member.user_id}, role={rundown_member.role}")
+        print(f"[IMPORT] Company ID: {new_rundown.company_id}, User Company ID: {current_user.company_id}")
+        print(f"[IMPORT] Membro criado: {creator_member is not None}, role={creator_member.role if creator_member else 'N/A'}")
         
         db.session.commit()
+        
+        # CRÍTICO: Invalidar cache de TODOS os usuários da empresa
+        # Isso garante que todos vejam o novo rundown importado imediatamente
+        try:
+            from cache_utils import invalidate_company_cache
+            invalidate_company_cache(current_user.company_id)
+            print(f"[IMPORT] Cache invalidado para empresa {current_user.company_id}")
+        except Exception as e:
+            print(f"[IMPORT] ⚠️ Erro ao invalidar cache: {e}")
+        
+        # Notifica lista alterada para todos os usuários da empresa
+        try:
+            from websocket_server import broadcast_rundown_list_changed
+            broadcast_rundown_list_changed(company_id=current_user.company_id)
+            print(f"[IMPORT] Notificação WebSocket enviada para empresa {current_user.company_id}")
+        except Exception as e:
+            print(f"[IMPORT] ⚠️ Erro ao enviar notificação WebSocket: {e}")
         
         return jsonify({
             'success': True,

@@ -27,20 +27,48 @@ const getApiUrl = () => {
     return `https://${window.location.hostname.replace(/^[^.]+/, 'backend')}`;
   }
   
-  // Detecta se é IP numérico (VPS) ou domínio de produção
   const hostname = window.location.hostname;
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
   
-  // Verifica se é um IP numérico (ex: 72.60.56.28) ou domínio de produção
-  const isIP = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
-  const isProductionDomain = !hostname.includes('localhost') && 
-                             !hostname.includes('127.0.0.1') && 
-                             !hostname.includes('192.168.') &&
-                             !hostname.includes('10.0.') &&
-                             !hostname.includes('172.16.');
+  // Função para detectar se é IP privado (desenvolvimento local/rede local)
+  const isPrivateIP = (ip) => {
+    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return false;
+    
+    const parts = ip.split('.').map(Number);
+    // 192.168.0.0 - 192.168.255.255
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 10.0.0.0 - 10.255.255.255
+    if (parts[0] === 10) return true;
+    // 172.16.0.0 - 172.31.255.255
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 127.0.0.0 - 127.255.255.255 (localhost)
+    if (parts[0] === 127) return true;
+    // 169.254.0.0 - 169.254.255.255 (link-local)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    
+    return false;
+  };
   
-  // Se for IP (VPS) ou domínio de produção, usa o mesmo host (Nginx faz proxy)
-  if (isIP || isProductionDomain) {
+  // Verifica se é IP numérico
+  const isIP = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
+  
+  // Se for localhost ou IP privado → DESENVOLVIMENTO
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || (isIP && isPrivateIP(hostname))) {
+    // Permite configurar URL do backend para desenvolvimento via variável de ambiente
+    if (import.meta.env.VITE_API_BASE_URL_DEV) {
+      const devUrl = import.meta.env.VITE_API_BASE_URL_DEV;
+      console.log('🏠 Desenvolvimento detectado (IP privado/rede local), usando backend configurado:', devUrl);
+      return devUrl;
+    }
+    // Se não tiver configuração, usa o mesmo IP mas na porta 5001 (backend local)
+    const backendUrl = `${protocol}//${hostname}:5001`;
+    console.log('🏠 Desenvolvimento detectado (IP privado/rede local), usando backend na porta 5001:', backendUrl);
+    console.log('💡 Dica: Configure VITE_API_BASE_URL_DEV no .env se o backend estiver em outro IP/porta');
+    return backendUrl;
+  }
+  
+  // Se for IP público ou domínio de produção → PRODUÇÃO (usa mesmo host com proxy Nginx)
+  if (isIP || (!hostname.includes('localhost') && !hostname.includes('127.0.0.1'))) {
     const apiUrl = `${protocol}//${hostname}${window.location.port ? ':' + window.location.port : ''}`;
     console.log('🌐 Detectado acesso em produção/VPS:', hostname, '-> Backend via Nginx:', apiUrl);
     console.log('🔧 window.location:', {
@@ -49,24 +77,9 @@ const getApiUrl = () => {
       port: window.location.port,
       href: window.location.href,
       isIP: isIP,
-      isProductionDomain: isProductionDomain
+      isPrivateIP: isIP ? isPrivateIP(hostname) : false
     });
     return apiUrl;
-  }
-  
-  // Se estiver rodando em localhost, verifica se há URL de desenvolvimento configurada
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    // Permite configurar URL do backend para desenvolvimento via variável de ambiente
-    // Útil quando backend está em VPS mas frontend roda localmente
-    if (import.meta.env.VITE_API_BASE_URL_DEV) {
-      const devUrl = import.meta.env.VITE_API_BASE_URL_DEV;
-      console.log('🏠 Desenvolvimento local detectado, usando backend configurado:', devUrl);
-      return devUrl;
-    }
-    // Se não tiver configuração, tenta localhost:5001 (backend local)
-    console.log('🏠 Detectado acesso local, usando localhost:5001 (backend local)');
-    console.log('💡 Dica: Se backend está na VPS, configure VITE_API_BASE_URL_DEV=http://72.60.56.28 no .env');
-    return 'http://localhost:5001';
   }
   
   // Fallback: usa o mesmo host
@@ -88,9 +101,13 @@ console.log('🔧 API configurada:', {
 });
 
 // Testa conectividade com o backend
-// Em produção/VPS, usa rota pública do backend (através do proxy /api)
-const testUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? `${API_BASE_URL}/`  // Em localhost, backend está na raiz
+// Detecta se é desenvolvimento (localhost ou IP privado)
+const isDev = window.location.hostname === 'localhost' || 
+              window.location.hostname === '127.0.0.1' ||
+              /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(window.location.hostname);
+
+const testUrl = isDev
+  ? `${API_BASE_URL}/`  // Em desenvolvimento, backend está na raiz
   : `${API_BASE_URL}/api/auth/login`;  // Em produção, usa rota pública através do proxy
 
 fetch(testUrl, { method: 'OPTIONS' })

@@ -151,6 +151,41 @@ export const SyncProvider = ({ children }) => {
         if (response.ok) {
           const result = await response.json().catch(() => ({}));
           console.log('✅ [SAVE] Pastas e eventos salvos no banco de dados:', result);
+          
+          // CRÍTICO: Se o backend retornou a estrutura com IDs reais, atualizar o estado local
+          // Isso garante que itens com IDs temporários recebam os IDs reais do banco
+          if (result.items && Array.isArray(result.items)) {
+            console.log('🔄 [SAVE] Atualizando IDs temporários com IDs reais do banco:', {
+              itemsReceived: result.items.length,
+              hasRealIds: result.items.some(f => f.children?.some(c => !String(c.id).startsWith('item-')))
+            });
+            
+            // Dispara evento para atualizar o rundown com IDs reais
+            window.dispatchEvent(new CustomEvent('rundownItemsUpdated', { 
+              detail: { 
+                rundownId: rundownId,
+                items: result.items 
+              } 
+            }));
+            
+            // CRÍTICO: Também dispara rundownSync para sincronizar PresenterView e outros clientes
+            // Isso garante que mudanças de nome/título sejam propagadas imediatamente
+            window.dispatchEvent(new CustomEvent('rundownSync', { 
+              detail: { 
+                rundownId: rundownId,
+                changes: { items: result.items }
+              } 
+            }));
+            
+            // Envia via WebSocket para outros clientes com os dados atualizados do backend
+            if (websocketManager.isConnected) {
+              websocketManager.socket.emit('rundown_updated', {
+                rundown_id: rundownId,
+                changes: { items: result.items }
+              });
+              console.log('📡 [SAVE] Dados atualizados enviados via WebSocket para outros clientes');
+            }
+          }
         } else {
           const errorData = await response.json().catch(() => ({}));
           console.error('❌ [SAVE] Erro ao salvar no banco:', response.status, errorData);
@@ -187,9 +222,82 @@ export const SyncProvider = ({ children }) => {
   const syncItemReorder = async (rundownId, folderIndex, newOrder) => {
     console.log('🚀 SyncContext: syncItemReorder chamada!', { rundownId, folderIndex, newOrder, hasToken: !!token });
     
+    // CRÍTICO: Verificar se está em modo de arrasto - NÃO salvar durante arrasto
+    // O salvamento só deve acontecer quando o usuário soltar o mouse (handleDragEnd)
+    if (typeof window !== 'undefined' && window.isDraggingRef?.current) {
+      console.log('⚠️ [REORDER] Ignorando salvamento durante arrasto - será salvo quando soltar o mouse');
+      // Ainda dispara o evento local para atualização visual, mas não salva no banco
+      window.dispatchEvent(new CustomEvent('itemReordered', { 
+        detail: { 
+          rundownId,
+          folderIndex,
+          newOrder
+        } 
+      }));
+      return;
+    }
+    
     if (!token) {
       console.log('❌ Token não disponível para sincronização');
       return;
+    }
+    
+    // CRÍTICO: Salvar reordenação no banco de dados
+    // Para salvar, precisamos enviar a estrutura completa do rundown atualizada
+    try {
+      // Busca o rundown atual para obter a estrutura completa
+      const rundownResponse = await fetch(`${API_BASE_URL}/api/rundowns`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (rundownResponse.ok) {
+        const rundownData = await rundownResponse.json();
+        const currentRundown = rundownData.rundowns?.find(r => String(r.id) === String(rundownId));
+        
+        if (currentRundown) {
+          // Atualiza a ordem dos itens na pasta específica
+          const updatedItems = [...currentRundown.items];
+          if (updatedItems[folderIndex]) {
+            updatedItems[folderIndex] = {
+              ...updatedItems[folderIndex],
+              children: newOrder
+            };
+            
+            // Salva no banco de dados
+            console.log('💾 [REORDER] Salvando reordenação de itens no banco de dados...', { rundownId, folderIndex });
+            const saveResponse = await fetch(`${API_BASE_URL}/api/rundowns/${rundownId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ items: updatedItems })
+            });
+            
+            if (saveResponse.ok) {
+              const result = await saveResponse.json().catch(() => ({}));
+              console.log('✅ [REORDER] Reordenação de itens salva no banco:', result);
+              
+              // Se o backend retornou a estrutura com IDs reais, atualizar o estado local
+              if (result.items && Array.isArray(result.items)) {
+                window.dispatchEvent(new CustomEvent('rundownItemsUpdated', { 
+                  detail: { 
+                    rundownId: rundownId,
+                    items: result.items 
+                  } 
+                }));
+              }
+            } else {
+              const errorData = await saveResponse.json().catch(() => ({}));
+              console.error('❌ [REORDER] Erro ao salvar reordenação:', saveResponse.status, errorData);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ [REORDER] Erro ao salvar reordenação no banco:', error);
     }
     
     console.log('🔄 Sincronizando reordenação de item via WebSocket:', { rundownId, folderIndex, newOrder });
@@ -218,7 +326,59 @@ export const SyncProvider = ({ children }) => {
   };
 
   const syncFolderReorder = async (rundownId, newOrder) => {
-    if (!token) return;
+    // CRÍTICO: Verificar se está em modo de arrasto - NÃO salvar durante arrasto
+    // O salvamento só deve acontecer quando o usuário soltar o mouse (handleDragEnd)
+    if (typeof window !== 'undefined' && window.isDraggingRef?.current) {
+      console.log('⚠️ [REORDER] Ignorando salvamento durante arrasto - será salvo quando soltar o mouse');
+      // Ainda dispara o evento local para atualização visual, mas não salva no banco
+      window.dispatchEvent(new CustomEvent('folderReordered', { 
+        detail: { 
+          rundownId,
+          newOrder
+        } 
+      }));
+      return;
+    }
+    
+    if (!token) {
+      console.log('❌ Token não disponível para sincronização');
+      return;
+    }
+    
+    // CRÍTICO: Salvar reordenação no banco de dados
+    try {
+      console.log('💾 [REORDER] Salvando reordenação de pastas no banco de dados...', { rundownId });
+      
+      // Salva diretamente a nova ordem das pastas
+      const saveResponse = await fetch(`${API_BASE_URL}/api/rundowns/${rundownId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ items: newOrder })
+      });
+      
+      if (saveResponse.ok) {
+        const result = await saveResponse.json().catch(() => ({}));
+        console.log('✅ [REORDER] Reordenação de pastas salva no banco:', result);
+        
+        // Se o backend retornou a estrutura com IDs reais, atualizar o estado local
+        if (result.items && Array.isArray(result.items)) {
+          window.dispatchEvent(new CustomEvent('rundownItemsUpdated', { 
+            detail: { 
+              rundownId: rundownId,
+              items: result.items 
+            } 
+          }));
+        }
+      } else {
+        const errorData = await saveResponse.json().catch(() => ({}));
+        console.error('❌ [REORDER] Erro ao salvar reordenação de pastas:', saveResponse.status, errorData);
+      }
+    } catch (error) {
+      console.error('❌ [REORDER] Erro ao salvar reordenação de pastas no banco:', error);
+    }
     
     console.log('🔄 Sincronizando reordenação de pasta via WebSocket:', { rundownId, newOrder });
     

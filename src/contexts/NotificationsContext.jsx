@@ -63,7 +63,7 @@ export const NotificationsProvider = ({ children }) => {
       
       // Se é notificação do backend
       if (!id.toString().startsWith('local-')) {
-        await fetch(`/api/notifications/${id}/read`, {
+        await fetch(`${API_BASE_URL}/api/notifications/${id}/read`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -112,7 +112,7 @@ export const NotificationsProvider = ({ children }) => {
       
       // Se é notificação do backend, deletar
       if (!id.toString().startsWith('local-')) {
-        await fetch(`/api/notifications/${id}`, {
+        await fetch(`${API_BASE_URL}/api/notifications/${id}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${token}`

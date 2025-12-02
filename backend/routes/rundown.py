@@ -180,13 +180,33 @@ def update_rundown(rundown_id):
     
     # Debug: log de permissões
     print(f"[UPDATE RUNDOWN] Usuário {user.id} ({user.name}) tentando editar rundown {rundown_id}")
+    print(f"[UPDATE RUNDOWN] Company ID - Rundown: {rundown.company_id}, User: {user.company_id}")
     print(f"[UPDATE RUNDOWN] Role: {user_role}, can_operate: {getattr(user, 'can_operate', False)}")
     print(f"[UPDATE RUNDOWN] has_operate_permission: {has_operate_permission}, is_member: {is_member}, is_owner: {is_owner}")
+    
+    # CRÍTICO: Verificar se o rundown pertence à mesma empresa do usuário
+    if rundown.company_id != user.company_id:
+        print(f"[UPDATE RUNDOWN] ❌ ERRO: Rundown pertence à empresa {rundown.company_id}, mas usuário está na empresa {user.company_id}")
+        return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
     
     # Permitir edição se: tem can_operate OU é membro do rundown (especialmente owner)
     if not has_operate_permission and not is_member:
         print(f"[UPDATE RUNDOWN] ❌ PERMISSÃO NEGADA para usuário {user.id}")
-        return jsonify({'error': 'Permissão negada. Você precisa ser operador ou membro deste rundown para editá-lo.'}), 403
+        # Se não é membro, tenta adicionar como membro (pode ser rundown importado sem vínculo)
+        if not is_member:
+            print(f"[UPDATE RUNDOWN] ⚠️ Usuário não é membro. Tentando adicionar como membro...")
+            try:
+                # Adiciona como membro se for da mesma empresa
+                new_member = RundownMember(rundown_id=rundown_id, user_id=user.id, role='member')
+                db.session.add(new_member)
+                db.session.flush()
+                print(f"[UPDATE RUNDOWN] ✅ Usuário {user.id} adicionado como membro do rundown {rundown_id}")
+                is_member = True
+            except Exception as e:
+                print(f"[UPDATE RUNDOWN] ❌ Erro ao adicionar membro: {e}")
+                return jsonify({'error': 'Permissão negada. Você precisa ser operador ou membro deste rundown para editá-lo.'}), 403
+        else:
+            return jsonify({'error': 'Permissão negada. Você precisa ser operador ou membro deste rundown para editá-lo.'}), 403
     
     print(f"[UPDATE RUNDOWN] ✅ PERMISSÃO CONCEDIDA para usuário {user.id}")
     
@@ -261,26 +281,72 @@ def update_rundown(rundown_id):
                 )
                 db.session.add(new_item)
         
-        # Não incluir items no changes para WebSocket - o frontend já sincroniza quando adiciona
-        # Remover items do changes para evitar conflito (frontend já tem os items atualizados)
-        if 'items' in changes:
-            del changes['items']
-        print(f"[UPDATE] Pastas e itens salvos para rundown {rundown_id}")
+        # CRÍTICO: Após salvar, reconstruir a estrutura com IDs reais para retornar ao frontend
+        # Isso permite que o frontend atualize os IDs temporários com os IDs reais do banco
+        saved_items = []
+        saved_folders = Folder.query.filter_by(rundown_id=rundown_id).order_by(Folder.ordem).all()
+        for folder in saved_folders:
+            folder_items = []
+            saved_folder_items = Item.query.filter_by(folder_id=folder.id).order_by(Item.ordem).all()
+            for item in saved_folder_items:
+                folder_items.append({
+                    'id': str(item.id),
+                    'title': item.title,
+                    'duration': item.duration,
+                    'description': item.description or '',
+                    'type': item.type,
+                    'status': item.status,
+                    'iconType': item.icon_type,
+                    'iconData': item.icon_data,
+                    'color': item.color,
+                    'urgency': item.urgency,
+                    'reminder': item.reminder or ''
+                })
+            saved_items.append({
+                'id': str(folder.id),
+                'title': folder.title,
+                'type': 'folder',
+                'children': folder_items
+            })
+        
+        # Incluir items salvos na resposta para que o frontend atualize os IDs temporários
+        changes['items'] = saved_items
+        print(f"[UPDATE] Pastas e itens salvos para rundown {rundown_id}. Total: {len(saved_folders)} pastas")
     
     # Atualiza last_modified
     rundown.last_modified = datetime.datetime.utcnow().isoformat()
     
-    db.session.commit()
+    # CRÍTICO: Garantir que o commit seja feito e verificar se houve erro
+    try:
+        db.session.commit()
+        print(f"[UPDATE RUNDOWN] ✅ Commit realizado com sucesso para rundown {rundown_id}")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[UPDATE RUNDOWN] ❌ ERRO ao fazer commit: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Erro ao salvar alterações: {str(e)}'}), 500
     
     # Invalidar cache do rundown E da lista de rundowns da empresa
     invalidate_rundown_cache(rundown_id)
     invalidate_company_cache(user.company_id)  # Invalida cache da lista de rundowns
+    print(f"[UPDATE RUNDOWN] Cache invalidado para rundown {rundown_id} e empresa {user.company_id}")
     
     # Notifica todos os clientes conectados sobre as mudanças via WebSocket
     if changes:
-        broadcast_rundown_update(rundown_id, changes)
+        try:
+            broadcast_rundown_update(rundown_id, changes)
+            print(f"[UPDATE RUNDOWN] Notificação WebSocket enviada para rundown {rundown_id}")
+        except Exception as e:
+            print(f"[UPDATE RUNDOWN] ⚠️ Erro ao enviar WebSocket: {e}")
     
-    return jsonify({'message': 'Rundown atualizado com sucesso'})
+    # CRÍTICO: Retornar a estrutura completa com IDs reais para que o frontend atualize os IDs temporários
+    response_data = {'message': 'Rundown atualizado com sucesso'}
+    if 'items' in changes:
+        response_data['items'] = changes['items']
+        print(f"[UPDATE RUNDOWN] Retornando estrutura com {len(changes['items'])} pastas e IDs reais")
+    
+    return jsonify(response_data)
 
 
 # Atualizar status do rundown (especialmente para mudanças para "ao vivo")

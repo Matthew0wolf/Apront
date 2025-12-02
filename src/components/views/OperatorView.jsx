@@ -604,34 +604,53 @@ const OperatorView = () => {
     toast({ variant: "destructive", title: "🗑️ Pasta Removida" });
   };
 
+  // Ref para armazenar a última ordem durante o arrasto (para salvar apenas ao soltar)
+  const pendingFolderReorderRef = useRef(null);
+  const pendingItemReorderRef = useRef(null);
+  const isDraggingFolderRef = useRef(false);
+  const isDraggingItemRef = useRef(false);
+
   const handleFolderReorder = (newOrder) => {
-    console.log('🔄 Operador: Reordenando pastas:', { rundownId: rundown?.id, type: typeof rundown?.id, newOrder });
+    console.log('🔄 Operador: Reordenando pastas (visual):', { 
+      rundownId: rundown?.id, 
+      newOrder,
+      isDragging: isDraggingFolderRef.current
+    });
+    
+    // CRÍTICO: Apenas atualiza visualmente durante o arrasto
+    // O salvamento será feito quando o usuário soltar o mouse
     setRundown(prev => ({ ...prev, items: newOrder }));
-    // Sincroniza com outros clientes
-    if (rundown?.id) {
-      console.log('📤 Operador: Enviando reordenação de pastas para backend');
-      syncFolderReorder(String(rundown.id), newOrder);
-    } else {
-      console.log('❌ Operador: rundown.id não disponível para sincronização');
+    
+    // Armazena a ordem pendente para salvar quando soltar
+    pendingFolderReorderRef.current = newOrder;
+    
+    // NÃO salva aqui - será salvo quando o usuário soltar o mouse (onDragEnd)
+  };
+
+  // Handler para quando o usuário SOLTA o mouse após arrastar uma pasta
+  const handleFolderDragEnd = () => {
+    console.log('🛑 handleFolderDragEnd: Usuário soltou o mouse após arrastar pasta');
+    
+    if (pendingFolderReorderRef.current && rundown?.id) {
+      console.log('💾 Salvando reordenação de pastas após soltar o mouse');
+      globalDragRef.current = false; // Libera flag antes de salvar
+      syncFolderReorder(String(rundown.id), pendingFolderReorderRef.current);
+      pendingFolderReorderRef.current = null;
     }
+    
+    isDraggingFolderRef.current = false;
+    globalDragRef.current = false;
   };
 
-  // Funções para Drag and Drop Visual
-  const handleDragStart = (event, info, item, folderIndex, itemIndex) => {
+  // Handler para quando o usuário INICIA o arrasto de uma pasta
+  const handleFolderDragStart = () => {
+    console.log('🟢 handleFolderDragStart: Usuário iniciou arrasto de pasta');
+    isDraggingFolderRef.current = true;
     globalDragRef.current = true;
-    localRundownRef.current = rundown; // Snapshot do estado atual
-    setDraggedItem({ type: 'item', data: item, folderIndex, itemIndex });
-    setIsDragging(true);
-    setDragOffset({ x: info.offset.x, y: info.offset.y });
   };
 
-  const handleFolderDragStart = (event, info, folder, folderIndex) => {
-    globalDragRef.current = true;
-    localRundownRef.current = rundown; // Snapshot do estado atual
-    setDraggedItem({ type: 'folder', data: folder, folderIndex });
-    setIsDragging(true);
-    setDragOffset({ x: info.offset.x, y: info.offset.y });
-  };
+  // Nota: As funções handleDragStart e handleFolderDragStart antigas foram removidas
+  // pois agora usamos os handlers onDragStart/onDragEnd do Reorder.Item do framer-motion
 
   const handleDrag = (event, info) => {
     setDragPosition({ x: info.point.x, y: info.point.y });
@@ -975,6 +994,10 @@ const OperatorView = () => {
       }
     }
     
+    // CRÍTICO: Libera a flag de arrasto ANTES de salvar
+    // Isso permite que as funções de sincronização salvem no banco
+    globalDragRef.current = false;
+    
     // Lógica de reordenação baseada na posição final
     // EXECUTA SE O DROP FOR VÁLIDO (finalDropIndicator.show === true)
     if (draggedItem && finalDropIndicator.show) {
@@ -1019,6 +1042,7 @@ const OperatorView = () => {
           setRundown({ ...currentRundown, items: newItems });
           
           if (currentRundown?.id) {
+            console.log('💾 Salvando reordenação de pastas após soltar o mouse');
             syncFolderReorder(String(currentRundown.id), newItems);
           }
         }
@@ -1102,6 +1126,7 @@ const OperatorView = () => {
             setRundown({ ...currentRundown, items: newItems });
             
             if (currentRundown?.id) {
+              console.log('💾 Salvando reordenação de itens após soltar o mouse');
               syncItemReorder(String(currentRundown.id), folderIndex, newItems[folderIndex].children);
             }
           } else {
@@ -1140,6 +1165,7 @@ const OperatorView = () => {
 
             // Sincroniza a nova ordem de ambas as pastas
             if (currentRundown?.id) {
+              console.log('💾 Salvando movimentação de item entre pastas após soltar o mouse');
               syncRundownUpdate(String(currentRundown.id), { items: newItems });
             }
           } else {
@@ -1149,7 +1175,7 @@ const OperatorView = () => {
       }
     }
     
-    // Libera flag DEPOIS de sincronizar
+    // Limpa estados visuais
     setIsDragging(false);
     setDraggedItem(null);
     setDragOverIndex(-1);
@@ -1159,19 +1185,15 @@ const OperatorView = () => {
     dropIndicatorRef.current = resetIndicator;
     setDropIndicator(resetIndicator);
     
-    // Libera lock com delay para evitar duplicação do WebSocket
-    setTimeout(() => {
-      globalDragRef.current = false;
-    }, 100);
+    // Nota: globalDragRef.current já foi definido como false ANTES de salvar acima
   };
 
   const handleItemReorder = (folderIndex, newOrder) => {
-    console.log('🔄 Operador: handleItemReorder chamado:', { 
+    console.log('🔄 Operador: handleItemReorder chamado (visual):', { 
       folderIndex, 
       oldLength: rundown.items[folderIndex]?.children?.length,
       newLength: newOrder.length,
-      oldOrder: rundown.items[folderIndex]?.children?.map(i => i.id),
-      newOrder: newOrder.map(i => i.id)
+      isDragging: isDraggingItemRef.current
     });
     
     // Verifica se realmente houve mudança
@@ -1183,17 +1205,43 @@ const OperatorView = () => {
       return; // Não faz nada se a ordem não mudou
     }
     
-    console.log('✅ Ordem diferente, aplicando mudança');
+    console.log('✅ Ordem diferente, aplicando mudança visual');
     const newRundown = { ...rundown };
     newRundown.items[folderIndex].children = newOrder;
     setRundown(newRundown);
-    // Sincroniza com outros clientes
-    if (rundown?.id) {
-      console.log('📤 Operador: Enviando reordenação de itens para backend');
-      syncItemReorder(String(rundown.id), folderIndex, newOrder);
-    } else {
-      console.log('❌ Operador: rundown.id não disponível para sincronização');
+    
+    // CRÍTICO: Armazena a ordem pendente para salvar quando soltar o mouse
+    pendingItemReorderRef.current = { folderIndex, newOrder };
+    
+    // NÃO salva aqui - será salvo quando o usuário soltar o mouse (onDragEnd)
+  };
+
+  // Handler para quando o usuário SOLTA o mouse após arrastar um item
+  const handleItemDragEnd = (folderIndex) => {
+    console.log('🛑 handleItemDragEnd: Usuário soltou o mouse após arrastar item', { folderIndex });
+    
+    if (pendingItemReorderRef.current && 
+        pendingItemReorderRef.current.folderIndex === folderIndex && 
+        rundown?.id) {
+      console.log('💾 Salvando reordenação de itens após soltar o mouse');
+      globalDragRef.current = false; // Libera flag antes de salvar
+      syncItemReorder(
+        String(rundown.id), 
+        pendingItemReorderRef.current.folderIndex, 
+        pendingItemReorderRef.current.newOrder
+      );
+      pendingItemReorderRef.current = null;
     }
+    
+    isDraggingItemRef.current = false;
+    globalDragRef.current = false;
+  };
+
+  // Handler para quando o usuário INICIA o arrasto de um item
+  const handleItemDragStart = () => {
+    console.log('🟢 handleItemDragStart: Usuário iniciou arrasto de item');
+    isDraggingItemRef.current = true;
+    globalDragRef.current = true;
   };
 
   if (!rundown) return null;
@@ -1306,7 +1354,13 @@ const OperatorView = () => {
             >
               <Reorder.Group axis="y" values={rundown.items} onReorder={handleFolderReorder} className="space-y-2 p-1 min-h-full">
                 {rundown.items.map((folder, fIndex) => (
-                  <Reorder.Item key={folder.id} value={folder} className="bg-secondary/50 rounded-lg">
+                  <Reorder.Item 
+                    key={folder.id} 
+                    value={folder} 
+                    className="bg-secondary/50 rounded-lg"
+                    onDragStart={handleFolderDragStart}
+                    onDragEnd={handleFolderDragEnd}
+                  >
                     <div className="flex items-center justify-between gap-2 p-2 rounded-t-md">
                       <div className="flex items-center gap-2">
                         <GripVertical className="w-5 h-5 text-muted-foreground cursor-grab" />
@@ -1330,7 +1384,14 @@ const OperatorView = () => {
                         if (remainingTime <= 30) progressColor = 'bg-yellow-500';
                         if (remainingTime <= 10) progressColor = 'bg-red-500';
                         return (
-                          <Reorder.Item key={item.id} value={item} className={cn("group relative flex items-center gap-2 sm:gap-4 p-3 rounded-md border-l-4 overflow-hidden", isCurrent ? 'bg-primary/20' : 'bg-card hover:bg-secondary')} style={{ borderColor: item.color }}>
+                          <Reorder.Item 
+                            key={item.id} 
+                            value={item} 
+                            className={cn("group relative flex items-center gap-2 sm:gap-4 p-3 rounded-md border-l-4 overflow-hidden", isCurrent ? 'bg-primary/20' : 'bg-card hover:bg-secondary')} 
+                            style={{ borderColor: item.color }}
+                            onDragStart={handleItemDragStart}
+                            onDragEnd={() => handleItemDragEnd(fIndex)}
+                          >
                             <GripVertical className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground cursor-grab flex-shrink-0" />
                             <div className="w-6 h-6 sm:w-8 sm:h-8 text-center text-muted-foreground flex items-center justify-center">{getIcon(item)}</div>
                             <div className="w-12 sm:w-20 text-center font-mono text-xs sm:text-sm text-muted-foreground">{formatTimeShort(item.duration)}</div>
