@@ -1,11 +1,11 @@
 from flask import Blueprint, jsonify, request
-from models import db, Rundown, RundownMember, Folder, Item
+from models import db, Rundown, RundownMember, Folder, Item, User
 from flask import g
 from auth_utils import jwt_required, payment_required
 from limit_utils import limit_check, update_company_limits, log_usage
 from websocket_server import broadcast_rundown_update, broadcast_rundown_list_changed
 from sqlalchemy.orm import joinedload
-from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache, delete_cache, invalidate_company_cache
+from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache, delete_cache, invalidate_company_cache, invalidate_user_cache
 
 rundown_bp = Blueprint('rundown', __name__, url_prefix='/api/rundowns')
 
@@ -122,23 +122,27 @@ def create_rundown():
     db.session.add(rundown)
     db.session.flush()
     
-    # Atribui membros: sempre inclui o criador como owner
+    # CRÍTICO: Vincular o rundown a TODOS os membros da empresa (como em templates.py e export.py)
+    # Isso garante que todos os usuários da empresa possam ver e editar o rundown criado
     creator_id = g.current_user.id
-    db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
-    
-    # Se membros foram especificados, adiciona apenas eles
-    # IMPORTANTE: Se nenhum membro for especificado, apenas o criador terá acesso
-    members = data.get('members', [])  # lista de user_ids
-    
-    if members and len(members) > 0:
-        # Adiciona apenas os membros especificados (além do criador que já foi adicionado)
-        for uid in members:
-            if uid != creator_id:
-                db.session.add(RundownMember(rundown_id=rundown.id, user_id=uid, role='member'))
-                print(f"[CREATE] Membro {uid} adicionado ao rundown {rundown.id}")
-    else:
-        # Se nenhum membro foi especificado, apenas o criador terá acesso
-        print(f"[CREATE] Nenhum membro especificado - apenas criador {creator_id} terá acesso ao rundown {rundown.id}")
+    try:
+        from models import User
+        company_users = User.query.filter_by(company_id=g.current_user.company_id).all()
+        for company_user in company_users:
+            # Verifica se já existe vínculo
+            existing = RundownMember.query.filter_by(rundown_id=rundown.id, user_id=company_user.id).first()
+            if not existing:
+                role = 'owner' if company_user.id == creator_id else 'member'
+                db.session.add(RundownMember(rundown_id=rundown.id, user_id=company_user.id, role=role))
+                print(f"[CREATE] Usuário {company_user.id} ({company_user.name}) vinculado como {role}")
+    except Exception as e:
+        print(f"[CREATE] ⚠️ Erro ao vincular usuários da empresa: {e}")
+        # Se der erro, pelo menos vincula ao criador
+        try:
+            db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
+            print(f"[CREATE] Apenas criador vinculado como owner")
+        except Exception:
+            pass
     
     db.session.commit()
     
@@ -331,6 +335,10 @@ def update_rundown(rundown_id):
     # Invalidar cache do rundown E da lista de rundowns da empresa
     invalidate_rundown_cache(rundown_id)
     invalidate_company_cache(user.company_id)  # Invalida cache da lista de rundowns
+    # CRÍTICO: Também invalidar cache específico de cada usuário da empresa
+    company_users = User.query.filter_by(company_id=user.company_id).all()
+    for company_user in company_users:
+        invalidate_user_cache(company_user.id)
     print(f"[UPDATE RUNDOWN] Cache invalidado para rundown {rundown_id} e empresa {user.company_id}")
     
     # Notifica todos os clientes conectados sobre as mudanças via WebSocket
@@ -338,6 +346,11 @@ def update_rundown(rundown_id):
         try:
             broadcast_rundown_update(rundown_id, changes)
             print(f"[UPDATE RUNDOWN] Notificação WebSocket enviada para rundown {rundown_id}")
+            
+            # CRÍTICO: Também notificar mudança na lista de rundowns para forçar recarregamento
+            # Isso garante que outros usuários vejam as mudanças mesmo que não estejam na sala do rundown
+            broadcast_rundown_list_changed(company_id=user.company_id)
+            print(f"[UPDATE RUNDOWN] Notificação de mudança na lista enviada para empresa {user.company_id}")
         except Exception as e:
             print(f"[UPDATE RUNDOWN] ⚠️ Erro ao enviar WebSocket: {e}")
     
