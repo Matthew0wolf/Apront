@@ -648,13 +648,26 @@ const RoleSelectionView = () => {
         />
       )}
       
-      {/* Pattern de linhas diagonais em -45 graus (invertido horizontalmente) - apenas no modo escuro */}
+      {/* Pattern de linhas diagonais em -45 graus (invertido horizontalmente) - tema escuro */}
       {!isLight && (
         <div 
           className="absolute inset-0 pointer-events-none"
           style={{
             backgroundImage: 
               'repeating-linear-gradient(-45deg, transparent 0px, transparent 8px, rgba(255, 255, 255, 0.04) 8px, rgba(255, 255, 255, 0.04) 10px)',
+            backgroundSize: '2299px 2299px',
+            zIndex: 0
+          }}
+        />
+      )}
+      
+      {/* Pattern de linhas diagonais em -45 graus (invertido horizontalmente) - tema claro */}
+      {isLight && (
+        <div 
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: 
+              'repeating-linear-gradient(-45deg, transparent 0px, transparent 8px, rgba(0, 0, 0, 0.04) 8px, rgba(0, 0, 0, 0.04) 10px)',
             backgroundSize: '2299px 2299px',
             zIndex: 0
           }}
