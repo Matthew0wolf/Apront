@@ -100,6 +100,8 @@ export const SyncProvider = ({ children }) => {
       if (response.ok) {
         const result = await response.json();
         console.log('✅ Status atualizado com sucesso:', result);
+        // Dispara evento para recarregar a lista de rundowns
+        window.dispatchEvent(new CustomEvent('rundownListChanged'));
         return true;
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -402,15 +404,26 @@ export const SyncProvider = ({ children }) => {
     }
   };
 
-  const syncTimerState = async (isRunning, timeElapsed, currentItemIndex) => {
-    if (!token || !activeRundownId) return;
+  const syncTimerState = async (isRunning, timeElapsed, currentItemIndex, rundownId = null) => {
+    // Usa rundownId fornecido ou activeRundownId como fallback
+    const targetRundownId = rundownId || activeRundownId;
     
-    console.log('🔄 Sincronizando estado do timer via WebSocket:', { isRunning, timeElapsed, currentItemIndex });
+    if (!token || !targetRundownId) {
+      console.warn('⚠️ syncTimerState: Token ou rundownId não disponível', { hasToken: !!token, rundownId: targetRundownId });
+      return;
+    }
+    
+    console.log('🔄 Sincronizando estado do timer via WebSocket:', { 
+      isRunning, 
+      timeElapsed, 
+      currentItemIndex,
+      rundownId: targetRundownId
+    });
     
     // Dispara evento imediatamente para o mesmo cliente
     window.dispatchEvent(new CustomEvent('rundownSync', { 
       detail: { 
-        rundownId: activeRundownId,
+        rundownId: targetRundownId,
         changes: {
           isRunning,
           timeElapsed,
@@ -422,14 +435,14 @@ export const SyncProvider = ({ children }) => {
     // Envia via WebSocket para outros clientes
     if (websocketManager.isConnected) {
       websocketManager.socket.emit('rundown_updated', {
-        rundown_id: activeRundownId,
+        rundown_id: targetRundownId,
         changes: {
           isRunning,
           timeElapsed,
           currentItemIndex
         }
       });
-      console.log('📡 Estado do timer enviado via WebSocket para outros clientes');
+      console.log('📡 Estado do timer enviado via WebSocket para outros clientes:', targetRundownId);
     } else {
       console.warn('⚠️ WebSocket não conectado. Estado do timer não será sincronizado com outros clientes.');
     }

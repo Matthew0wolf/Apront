@@ -296,31 +296,45 @@ const OperatorView = () => {
   useEffect(() => {
     const handleRequestTimerState = (event) => {
       const { rundownId } = event.detail;
-      if (String(rundownId) === String(projectId) && rundown?.id) {
+      // Responde se o rundownId corresponde ao projectId atual
+      // Não precisa verificar rundown?.id porque podemos usar projectId diretamente
+      if (String(rundownId) === String(projectId)) {
         console.log('📡 OperatorView: Apresentador solicitou estado do timer, enviando IMEDIATAMENTE...', {
           isRunning,
           timeElapsed,
           currentItemIndex,
-          rundownId: rundown.id
+          projectId,
+          hasRundown: !!rundown
         });
         // CRÍTICO: Envia o estado atual do timer IMEDIATAMENTE
         // Não aguarda nada, responde na hora para que o apresentador receba o estado correto
-        syncTimerState(isRunning, timeElapsed, currentItemIndex);
+        // Passa o projectId explicitamente para garantir que funcione mesmo se activeRundownId não estiver definido
+        syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
         
         // Se o timer está rodando, também envia novamente após um pequeno delay
         // para garantir que o apresentador receba mesmo se houver algum problema de timing
         if (isRunning) {
           setTimeout(() => {
             console.log('📡 OperatorView: Reenviando estado do timer (timer está rodando)...');
-            syncTimerState(isRunning, timeElapsed, currentItemIndex);
+            syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
           }, 500);
+          // Envia uma terceira vez após mais um delay para garantir
+          setTimeout(() => {
+            console.log('📡 OperatorView: Reenviando estado do timer novamente (timer está rodando)...');
+            syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
+          }, 1500);
         }
+      } else {
+        console.log('⚠️ OperatorView: Solicitação de estado do timer ignorada (rundownId diferente):', {
+          requestedRundownId: rundownId,
+          currentProjectId: projectId
+        });
       }
     };
 
     window.addEventListener('requestTimerState', handleRequestTimerState);
     return () => window.removeEventListener('requestTimerState', handleRequestTimerState);
-  }, [projectId, rundown?.id, isRunning, timeElapsed, currentItemIndex, syncTimerState]);
+  }, [projectId, isRunning, timeElapsed, currentItemIndex, syncTimerState, rundown]);
 
   useEffect(() => {
     const connectionInterval = setInterval(() => setIsOnline(Math.random() > 0.1), 5000);
@@ -333,7 +347,7 @@ const OperatorView = () => {
     setIsRunning(newRunningState);
     
     // Sincroniza o estado do timer com outros clientes
-    syncTimerState(newRunningState, timeElapsed, currentItemIndex);
+    syncTimerState(newRunningState, timeElapsed, currentItemIndex, projectId);
 
     // Notificação para equipe (já mostra toast automaticamente)
     if (newRunningState) {
@@ -360,7 +374,7 @@ const OperatorView = () => {
     setCurrentItemIndex(0, 0);
     
     // Sincroniza o estado de parada com outros clientes
-    syncTimerState(false, 0, { folderIndex: 0, itemIndex: 0 });
+    syncTimerState(false, 0, { folderIndex: 0, itemIndex: 0 }, projectId);
 
     if (rundown?.id) {
       updateRundownStatus(rundown.id, 'Parado');

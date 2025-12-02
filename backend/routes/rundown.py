@@ -483,8 +483,19 @@ def update_rundown_status(rundown_id):
                 }
             }
             broadcast_rundown_update(rundown_id, changes)
+            # CRÍTICO: Dispara evento para atualizar a lista de rundowns em todos os clientes
+            broadcast_rundown_list_changed(company_id=user.company_id)
+            print(f'📢 Lista de rundowns atualizada via WebSocket para empresa {user.company_id}')
         except Exception as ws_error:
             print(f"AVISO: Erro ao enviar WebSocket: {ws_error}")
+        
+        # Invalidar cache do rundown e da lista de rundowns
+        try:
+            invalidate_rundown_cache(rundown_id)
+            invalidate_company_cache(user.company_id)
+            print(f'🗑️ Cache invalidado para rundown {rundown_id} e empresa {user.company_id}')
+        except Exception as cache_error:
+            print(f"AVISO: Erro ao invalidar cache: {cache_error}")
         
         return jsonify({
             'message': 'Status atualizado com sucesso',
