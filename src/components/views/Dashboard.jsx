@@ -325,7 +325,7 @@ const Dashboard = () => {
     <div className="min-h-screen bg-background">
       {/* Hero Section - Banner do Figma - Full Width */}
       <section 
-        className="relative mb-6 sm:mb-8 overflow-hidden"
+        className="relative mb-6 sm:mb-8 overflow-hidden -mt-3 sm:-mt-6"
         style={{
           width: '100vw',
           position: 'relative',
