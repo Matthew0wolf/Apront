@@ -323,50 +323,59 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero Section - Banner do Figma */}
-      <section className="relative w-full mb-6 sm:mb-8">
-        <div className="container mx-auto px-3 sm:px-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full overflow-hidden rounded-xl sm:rounded-2xl shadow-2xl"
-          >
-            {/* Imagem completa do banner do Figma */}
-            <div className="relative w-full flex justify-center">
-              <img 
-                src="/banner-version-1.0.png"
-                alt="Apront Versão 1.0 Lançada - Banner"
-                className="w-full max-w-full h-auto object-contain"
-                onError={(e) => {
-                  // Se a imagem não existir, oculta o banner silenciosamente
-                  e.target.style.display = 'none';
-                }}
-              />
-              
-              {/* Área clicável transparente sobre o botão fake da imagem */}
-              <button
-                onClick={() => navigate('/updates')}
-                className="absolute left-[3.5%] bottom-[9%] w-[152px] h-[56px] sm:left-[4%] sm:bottom-[11%] sm:w-[162px] sm:h-[60px] lg:left-[5.5%] lg:bottom-[13%] lg:w-[180px] lg:h-[65px] bg-transparent cursor-pointer z-10 border-0 p-0 m-0 outline-none"
-                style={{ 
-                  fontFamily: "'Darker Grotesque', sans-serif",
-                  boxShadow: 'none',
-                  backgroundColor: 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-                aria-label="Saiba Mais sobre a Versão 1.0"
-              >
-                <span className="sr-only">Saiba Mais</span>
-              </button>
-            </div>
-          </motion.div>
-        </div>
+      {/* Hero Section - Banner do Figma - Full Width */}
+      <section 
+        className="relative mb-6 sm:mb-8 overflow-hidden"
+        style={{
+          width: '100vw',
+          position: 'relative',
+          left: '50%',
+          right: '50%',
+          marginLeft: '-50vw',
+          marginRight: '-50vw'
+        }}
+      >
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative w-full"
+        >
+          {/* Imagem completa do banner do Figma */}
+          <div className="relative w-full flex justify-center">
+            <img 
+              src="/banner-version-1.0.png"
+              alt="Apront Versão 1.0 Lançada - Banner"
+              className="w-full h-auto block"
+              style={{ width: '100%', maxWidth: 'none', display: 'block' }}
+              onError={(e) => {
+                // Se a imagem não existir, oculta o banner silenciosamente
+                e.target.style.display = 'none';
+              }}
+            />
+            
+            {/* Área clicável transparente sobre o botão fake da imagem */}
+            <button
+              onClick={() => navigate('/updates')}
+              className="absolute left-[3.5%] bottom-[9%] w-[152px] h-[56px] sm:left-[4%] sm:bottom-[11%] sm:w-[162px] sm:h-[60px] lg:left-[5.5%] lg:bottom-[13%] lg:w-[180px] lg:h-[65px] bg-transparent cursor-pointer z-10 border-0 p-0 m-0 outline-none"
+              style={{ 
+                fontFamily: "'Darker Grotesque', sans-serif",
+                boxShadow: 'none',
+                backgroundColor: 'transparent'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+              aria-label="Saiba Mais sobre a Versão 1.0"
+            >
+              <span className="sr-only">Saiba Mais</span>
+            </button>
+          </div>
+        </motion.div>
       </section>
 
       {/* Estatísticas Rápidas - Conforme Figma */}
