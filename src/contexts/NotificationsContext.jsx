@@ -61,26 +61,40 @@ export const NotificationsProvider = ({ children }) => {
     try {
       const token = localStorage.getItem('token');
       
-      // Se é notificação do backend
+      // Verificar se já está lida antes de fazer a requisição
+      const notification = notifications.find(n => n.id === id);
+      if (notification && notification.read) {
+        return; // Já está lida, não precisa fazer nada
+      }
+      
+      // Se é notificação do backend, marcar como lida no backend
       if (!id.toString().startsWith('local-')) {
-        await fetch(`${API_BASE_URL}/api/notifications/${id}/read`, {
+        const response = await fetch(`${API_BASE_URL}/api/notifications/${id}/read`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
+        
+        if (!response.ok) {
+          console.error('Erro ao marcar notificação como lida no backend:', response.status);
+          return; // Não atualizar localmente se falhou no backend
+        }
       }
       
-      // Atualizar localmente
-      setNotifications(prev => prev.map(n => 
-        n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n
-      ));
+      // Atualizar localmente apenas se foi bem-sucedida
+      setNotifications(prev => {
+        const updated = prev.map(n => 
+          n.id === id ? { ...n, read: true, read_at: new Date().toISOString() } : n
+        );
+        return updated;
+      });
       setUnreadCount(prev => Math.max(0, prev - 1));
       
     } catch (error) {
       console.error('Erro ao marcar como lida:', error);
     }
-  }, []);
+  }, [notifications]);
 
   const markAllAsRead = useCallback(async () => {
     try {
@@ -109,25 +123,62 @@ export const NotificationsProvider = ({ children }) => {
   const clearNotification = useCallback(async (id) => {
     try {
       const token = localStorage.getItem('token');
-      
-      // Se é notificação do backend, deletar
-      if (!id.toString().startsWith('local-')) {
-        await fetch(`${API_BASE_URL}/api/notifications/${id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+      if (!token) {
+        console.error('Token não encontrado para deletar notificação');
+        return;
       }
       
-      setNotifications(prev => prev.filter(n => n.id !== id));
+      // Encontrar a notificação antes de remover para verificar se estava não lida
+      const notificationToRemove = notifications.find(n => n.id === id);
+      const wasUnread = notificationToRemove && !notificationToRemove.read;
+      
+      // Se é notificação do backend, deletar permanentemente no backend
+      if (!id.toString().startsWith('local-')) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/notifications/${id}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            // Deletar com sucesso no backend - remover localmente
+            setNotifications(prev => prev.filter(n => n.id !== id));
+            if (wasUnread) {
+              setUnreadCount(prev => Math.max(0, prev - 1));
+            }
+            console.log('✅ Notificação deletada permanentemente do backend:', id);
+          } else {
+            const responseData = await response.json().catch(() => ({}));
+            console.error('Erro ao deletar notificação no backend:', response.status, responseData);
+            toast({
+              title: "Erro",
+              description: "Não foi possível remover a notificação. Tente novamente.",
+              variant: "destructive"
+            });
+          }
+        } catch (error) {
+          console.error('Erro ao deletar notificação no backend:', error);
+          toast({
+            title: "Erro",
+            description: "Erro de conexão ao remover notificação.",
+            variant: "destructive"
+          });
+        }
+      } else {
+        // Notificação local - apenas remover localmente
+        setNotifications(prev => prev.filter(n => n.id !== id));
+        if (wasUnread) {
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        }
+      }
       
     } catch (error) {
       console.error('Erro ao remover notificação:', error);
-      // Remover localmente mesmo se falhar no backend
-      setNotifications(prev => prev.filter(n => n.id !== id));
     }
-  }, []);
+  }, [notifications, toast]);
 
   const clearAll = useCallback(() => {
     setNotifications([]);

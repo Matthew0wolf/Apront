@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request, g
-from models import db, User, Company, Rundown, UsageLog, CompanyLimits
+from models import db, User, Company, Rundown, UsageLog, CompanyLimits, SystemEvent
 from auth_utils import jwt_required
 from datetime import datetime, timedelta
 import json
@@ -22,11 +22,11 @@ def get_admin_dashboard():
         # CRÍTICO: Filtrar rundowns por company_id
         total_rundowns = Rundown.query.filter_by(company_id=company_id).count()
         
-        # Uso dos últimos 30 dias
+        # Uso dos últimos 30 dias - usando SystemEvent
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_usage = UsageLog.query.filter(
-            UsageLog.company_id == company_id,
-            UsageLog.created_at >= thirty_days_ago.isoformat()
+        recent_usage = SystemEvent.query.filter(
+            SystemEvent.company_id == company_id,
+            SystemEvent.created_at >= thirty_days_ago
         ).count()
         
         # Rundowns ao vivo (em execução) - considerar status 'Ao Vivo' e 'active'
@@ -50,32 +50,39 @@ def get_admin_dashboard():
             db.session.add(limits)
             db.session.commit()
         
-        # Estatísticas de uso por dia (últimos 7 dias)
+        # Estatísticas de uso por dia (últimos 7 dias) - usando SystemEvent
         usage_by_day = []
         for i in range(7):
             date = datetime.utcnow() - timedelta(days=i)
-            date_str = date.strftime('%Y-%m-%d')
-            count = UsageLog.query.filter(
-                UsageLog.company_id == company_id,
-                UsageLog.created_at.like(f'{date_str}%')
+            date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_end = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            count = SystemEvent.query.filter(
+                SystemEvent.company_id == company_id,
+                SystemEvent.created_at >= date_start,
+                SystemEvent.created_at <= date_end
             ).count()
             usage_by_day.append({
-                'date': date_str,
+                'date': date_start.strftime('%Y-%m-%d'),
                 'count': count
             })
+        usage_by_day.reverse()  # Mais antigo primeiro para o gráfico
         
-        # Top 5 usuários mais ativos
+        # Top 5 usuários mais ativos - usando SystemEvent
         top_users = db.session.query(
             User.name,
-            db.func.count(UsageLog.id).label('activity_count')
-        ).join(UsageLog, User.id == UsageLog.user_id)\
-         .filter(UsageLog.company_id == company_id)\
-         .filter(UsageLog.created_at >= thirty_days_ago.isoformat())\
+            db.func.count(SystemEvent.id).label('activity_count')
+        ).join(SystemEvent, User.id == SystemEvent.user_id)\
+         .filter(SystemEvent.company_id == company_id)\
+         .filter(SystemEvent.created_at >= thirty_days_ago)\
          .group_by(User.id, User.name)\
-         .order_by(db.func.count(UsageLog.id).desc())\
+         .order_by(db.func.count(SystemEvent.id).desc())\
          .limit(5).all()
         
         return jsonify({
+            'user_info': {
+                'name': g.current_user.name,
+                'role': g.current_user.role.value
+            },
             'overview': {
                 'total_users': total_users,
                 'total_rundowns': total_rundowns,
@@ -84,8 +91,8 @@ def get_admin_dashboard():
                 'plan_limits': {
                     'max_users': company.plan.max_members if company.plan else 0,
                     'max_rundowns': company.plan.max_rundowns if company.plan else 0,
-                    'current_users': limits.current_members,
-                    'current_rundowns': limits.current_rundowns
+                    'current_users': total_users,  # Usar valor real em vez de contador
+                    'current_rundowns': total_rundowns  # Usar valor real em vez de contador
                 }
             },
             'live_rundowns': live_rundowns,

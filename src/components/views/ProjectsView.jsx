@@ -1,6 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Play, Clock, Users, Folder, MoreVertical, ChevronDown, ExternalLink } from 'lucide-react';
+import { Plus, Search, Play, Clock, Users, Folder, MoreVertical, ChevronDown, ExternalLink, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const ProjectsView = () => {
-  const { rundowns, handleCreateRundown, handleDeleteRundown, handleUpdateRundownMembers, loadRundownState, isRunning, activeRundown } = useRundown();
+  const { rundowns, handleCreateRundown, handleDeleteRundown, handleUpdateRundownMembers, handleUpdateRundown, loadRundownState, isRunning, activeRundown } = useRundown();
   const { toast } = useToast();
   const navigate = useNavigate();
   const { token, user } = useContext(AuthContext);
@@ -171,21 +171,21 @@ const ProjectsView = () => {
                           <>
                             <DropdownMenuItem 
                               onClick={() => {
-                                // Verifica se o rundown está ao vivo antes de permitir gerenciar equipe
+                                // Verifica se o rundown está ao vivo antes de permitir editar
                                 if (project.status && project.status.toLowerCase() === 'ao vivo') {
                                   toast({
                                     variant: "destructive",
                                     title: "Ação bloqueada",
-                                    description: "Não é possível alterar membros de um rundown que está ao vivo.",
+                                    description: "Não é possível editar um rundown que está ao vivo.",
                                   });
                                   return;
                                 }
-                                setProjectToManage({ ...project, manageTeam: true });
+                                setProjectToManage({ ...project });
                                 setCreateDialogOpen(true);
                               }}
                             >
-                              <Users className="w-4 h-4 mr-2" />
-                              Gerenciar Equipe
+                              <Edit className="w-4 h-4 mr-2" />
+                              Editar
                             </DropdownMenuItem>
                             <DropdownMenuItem 
                               onClick={() => {
@@ -211,7 +211,7 @@ const ProjectsView = () => {
                   </div>
 
                   {/* Título */}
-                  <h3 className="font-bold text-lg mb-3 pr-8">
+                  <h3 className="font-bold text-lg mb-3 pr-8 truncate" title={project.name}>
                     {project.name}
                   </h3>
 
@@ -301,10 +301,28 @@ const ProjectsView = () => {
         onSave={async (data) => {
           console.log('[PROJECTS VIEW] onSave chamado:', { projectToManage, data });
           
-          if (projectToManage?.manageTeam) {
-            // Atualizar membros do rundown
-            console.log('[PROJECTS VIEW] Atualizando membros do rundown:', projectToManage.id, data.members);
-            await handleUpdateRundownMembers(projectToManage.id, data.members || []);
+          if (projectToManage?.id) {
+            // Editar rundown existente (nome, tipo e membros)
+            console.log('[PROJECTS VIEW] Editando rundown:', projectToManage.id, data);
+            try {
+              // Atualiza nome e tipo
+              await handleUpdateRundown(projectToManage.id, {
+                name: data.name,
+                type: data.type
+              });
+              // Atualiza membros
+              await handleUpdateRundownMembers(projectToManage.id, data.members || []);
+              toast({
+                title: "✅ Projeto atualizado!",
+                description: `O projeto "${data.name}" foi atualizado com sucesso.`,
+              });
+            } catch (error) {
+              toast({
+                variant: "destructive",
+                title: "Erro",
+                description: "Não foi possível atualizar o projeto.",
+              });
+            }
           } else {
             // Criar novo rundown
             console.log('[PROJECTS VIEW] Criando novo rundown:', data);

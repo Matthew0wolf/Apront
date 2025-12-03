@@ -21,6 +21,7 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
   const [rundownMembers, setRundownMembers] = useState([]); // Membros atuais do rundown (com roles)
   const { token, user } = useContext(AuthContext);
   const { apiCall } = useApi();
+  const MAX_NAME_LENGTH = 50;
 
   const isEditing = !!projectToEdit && !projectToEdit.manageTeam;
   const managingTeam = !!projectToEdit && projectToEdit.manageTeam;
@@ -53,8 +54,8 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
       .then(data => setTeam(data.team || []))
       .catch(() => setTeam([]));
     
-    // Se estiver gerenciando equipe, carrega membros atuais do rundown
-    if (managingTeam && projectToEdit?.id) {
+    // Se estiver editando ou gerenciando equipe, carrega membros atuais do rundown
+    if ((isEditing || managingTeam) && projectToEdit?.id) {
       apiCall(`/api/rundowns/${projectToEdit.id}/members`)
         .then(res => res.ok ? res.json() : { members: [] })
         .then(data => {
@@ -78,11 +79,15 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
     } else {
       setRundownMembers([]);
     }
-  }, [isOpen, token, apiCall, managingTeam, projectToEdit]);
+  }, [isOpen, token, apiCall, managingTeam, isEditing, projectToEdit]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!managingTeam && !projectName.trim()) {
+      return;
+    }
+    if (!managingTeam && projectName.length > MAX_NAME_LENGTH) {
+      // O maxLength já previne isso, mas garantimos aqui também
       return;
     }
     
@@ -130,14 +135,28 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
               <Label htmlFor="name" className="text-right">
                 Nome
               </Label>
-              <Input
-                id="name"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                className="col-span-3"
-                placeholder="Ex: Final do Campeonato"
-                required
-              />
+              <div className="col-span-3">
+                <Input
+                  id="name"
+                  value={projectName}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value.length <= MAX_NAME_LENGTH) {
+                      setProjectName(value);
+                    }
+                  }}
+                  className={projectName.length > MAX_NAME_LENGTH ? 'border-red-500' : ''}
+                  placeholder="Ex: Final do Campeonato"
+                  required
+                  maxLength={MAX_NAME_LENGTH}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {projectName.length}/{MAX_NAME_LENGTH} caracteres
+                  {projectName.length > MAX_NAME_LENGTH && (
+                    <span className="text-red-500 ml-2">Limite excedido</span>
+                  )}
+                </p>
+              </div>
             </div>
             )}
             {!managingTeam && (
@@ -165,8 +184,8 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                 <div className="max-h-40 overflow-y-auto space-y-1">
                   {team.length === 0 && <div className="text-muted-foreground">Sem membros disponíveis</div>}
                   
-                  {/* Mostra owner separadamente se estiver gerenciando equipe */}
-                  {managingTeam && rundownMembers.length > 0 && (() => {
+                  {/* Mostra owner separadamente se estiver editando ou gerenciando equipe */}
+                  {(isEditing || managingTeam) && rundownMembers.length > 0 && (() => {
                     const owner = rundownMembers.find(m => m.rundown_role === 'owner');
                     if (owner) {
                       // Verifica se o owner também está na lista de membros da empresa (para evitar duplicação)
@@ -195,11 +214,11 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                     return null;
                   })()}
                   
-                  {/* Lista de membros (excluindo owner se estiver gerenciando) */}
+                  {/* Lista de membros (excluindo owner se estiver editando ou gerenciando) */}
                   {team
                     .filter(member => {
-                      // Se estiver gerenciando equipe, exclui o owner da lista de checkboxes
-                      if (managingTeam && rundownMembers.length > 0) {
+                      // Se estiver editando ou gerenciando equipe, exclui o owner da lista de checkboxes
+                      if ((isEditing || managingTeam) && rundownMembers.length > 0) {
                         const owner = rundownMembers.find(m => m.rundown_role === 'owner');
                         if (owner) {
                           // Garante comparação correta mesmo se IDs forem de tipos diferentes
@@ -249,7 +268,7 @@ const CreateProjectDialog = ({ isOpen, onOpenChange, onSave, projectToEdit }) =>
                     })}
                 </div>
                 <div className="text-xs text-muted-foreground mt-2">
-                  {managingTeam 
+                  {(isEditing || managingTeam)
                     ? 'O criador sempre terá acesso e não pode ser removido. Selecione ou desmarque outros membros.'
                     : 'Selecione os membros que terão acesso a este rundown. Se nenhum for selecionado, apenas você terá acesso.'}
                 </div>

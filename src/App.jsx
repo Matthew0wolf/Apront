@@ -19,6 +19,8 @@ import RoleSelectionView from '@/components/views/RoleSelectionView';
 import RoleGuard from '@/components/guards/RoleGuard';
 import PermissionGuard from '@/components/guards/PermissionGuard';
 import AnalyticsView from '@/components/views/AnalyticsView';
+import UpdatesView from '@/components/views/UpdatesView';
+import AuditoriaView from '@/components/views/AuditoriaView';
 
 import MiniPresenterView from '@/components/shared/MiniPresenterView';
 import { useRundown } from '@/contexts/RundownContext.jsx';
@@ -55,7 +57,7 @@ const MainLayout = ({ children }) => {
   return (
     <div className="min-h-screen bg-background flex flex-col text-foreground">
       <Sidebar currentView={location.pathname.substring(1) || 'dashboard'} onViewChange={(view) => navigate(`/${view}`)} />
-      <main className="flex-1 p-3 sm:p-6 overflow-auto pt-14 sm:pt-16">{children}</main>
+      <main className="flex-1 p-3 sm:p-6 overflow-auto pt-[80px]">{children}</main>
     </div>
   );
 };
@@ -143,6 +145,7 @@ function App() {
                     </RoleGuard>
                   } />
                   <Route path="/analytics" element={<AnalyticsView />} />
+                  <Route path="/updates" element={<UpdatesView />} />
                   <Route path="/history" element={<TransmissionHistoryView />} />
                   <Route path="/backup" element={
                     <RoleGuard allowedRoles={['admin']}>
@@ -152,6 +155,11 @@ function App() {
                   <Route path="/security" element={
                     <RoleGuard allowedRoles={['admin']}>
                       <SecurityAuditView />
+                    </RoleGuard>
+                  } />
+                  <Route path="/auditoria" element={
+                    <RoleGuard allowedRoles={['admin']}>
+                      <AuditoriaView />
                     </RoleGuard>
                   } />
                   <Route path="*" element={<Dashboard />} />

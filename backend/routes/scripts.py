@@ -5,8 +5,8 @@ Sprint 1 - Backend: Rotas API para scripts
 
 from flask import Blueprint, request, jsonify, g
 from auth_utils import jwt_required
-from models import db, Item, Folder, Rundown, Rehearsal, User
-from datetime import datetime
+from models import db, Item, Folder, Rundown, Rehearsal, User, SystemEvent
+import datetime
 import json
 
 scripts_bp = Blueprint('scripts', __name__, url_prefix='/api')
@@ -92,6 +92,30 @@ def update_item_script(item_id):
         
         if 'presenter_notes' in data:
             item.presenter_notes = data['presenter_notes']
+        
+        # Criar evento de auditoria para atualização de script
+        try:
+            audit_event = SystemEvent(
+                event_type='item.script_updated',
+                user_id=current_user.id,
+                company_id=current_user.company_id,
+                resource_type='item',
+                resource_id=item.id,
+                metadata_json=json.dumps({
+                    'item_title': item.title,
+                    'project_name': rundown.name,
+                    'has_script': bool(data.get('script')),
+                    'has_talking_points': bool(data.get('talking_points')),
+                    'has_pronunciation_guide': bool(data.get('pronunciation_guide')),
+                    'has_presenter_notes': bool(data.get('presenter_notes'))
+                }),
+                created_at=datetime.datetime.utcnow(),
+                ip_address=request.remote_addr[:50] if request.remote_addr else None,
+                user_agent=request.headers.get('User-Agent', '')[:200] if request.headers else None
+            )
+            db.session.add(audit_event)
+        except Exception as e:
+            print(f"⚠️ Erro ao criar evento de auditoria (não crítico): {e}")
         
         db.session.commit()
         
@@ -192,7 +216,7 @@ def create_rehearsal():
             duration=duration,
             planned_duration=planned_duration,
             difference=difference,
-            recorded_at=datetime.now().isoformat(),
+            recorded_at=datetime.datetime.now().isoformat(),
             notes=data.get('notes', '')
         )
         

@@ -238,7 +238,7 @@ const AdminDashboard = ({ data, activeTab }) => {
                 <div className="w-full bg-muted rounded-full h-2">
                   <div 
                     className="bg-blue-500 h-2 rounded-full" 
-                    style={{ width: `${(data.overview.plan_limits.current_users / data.overview.plan_limits.max_users) * 100}%` }}
+                    style={{ width: `${data.overview.plan_limits.max_users > 0 ? Math.min((data.overview.plan_limits.current_users / data.overview.plan_limits.max_users) * 100, 100) : 0}%` }}
                   ></div>
                 </div>
               </div>
@@ -250,7 +250,7 @@ const AdminDashboard = ({ data, activeTab }) => {
                 <div className="w-full bg-muted rounded-full h-2">
                   <div 
                     className="bg-green-500 h-2 rounded-full" 
-                    style={{ width: `${(data.overview.plan_limits.current_rundowns / data.overview.plan_limits.max_rundowns) * 100}%` }}
+                    style={{ width: `${data.overview.plan_limits.max_rundowns > 0 ? Math.min((data.overview.plan_limits.current_rundowns / data.overview.plan_limits.max_rundowns) * 100, 100) : 0}%` }}
                   ></div>
                 </div>
               </div>
@@ -430,7 +430,23 @@ const MetricCard = ({ title, value, icon: Icon, color, subtitle }) => {
 };
 
 const TrendChart = ({ data, title }) => {
-  const maxValue = Math.max(...data.map(d => d.count || d.operations || d.presentations));
+  if (!data || data.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-card rounded-xl border border-border p-6"
+      >
+        <h3 className="text-lg font-semibold mb-4">{title}</h3>
+        <div className="flex items-center justify-center h-32">
+          <p className="text-muted-foreground">Nenhum dado disponível</p>
+        </div>
+      </motion.div>
+    );
+  }
+  
+  const values = data.map(d => d.count || d.operations || d.presentations || 0);
+  const maxValue = Math.max(...values, 1); // Mínimo 1 para evitar divisão por zero
   
   return (
     <motion.div
@@ -442,12 +458,13 @@ const TrendChart = ({ data, title }) => {
       <div className="flex items-end justify-between h-32 space-x-2">
         {data.map((item, index) => {
           const value = item.count || item.operations || item.presentations || 0;
-          const height = (value / maxValue) * 100;
+          const height = maxValue > 0 ? Math.max((value / maxValue) * 100, 2) : 2; // Mínimo 2% para ver barras mesmo quando 0
           return (
             <div key={index} className="flex flex-col items-center flex-1">
               <div 
                 className="bg-primary rounded-t w-full transition-all duration-300 hover:bg-primary/80"
-                style={{ height: `${height}%` }}
+                style={{ height: `${height}%`, minHeight: value > 0 ? '4px' : '2px' }}
+                title={`${value} ações`}
               ></div>
               <span className="text-xs text-muted-foreground mt-2">
                 {new Date(item.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
@@ -460,28 +477,45 @@ const TrendChart = ({ data, title }) => {
   );
 };
 
-const TopUsers = ({ data, title }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-card rounded-xl border border-border p-6"
-  >
-    <h3 className="text-lg font-semibold mb-4">{title}</h3>
-    <div className="space-y-3">
-      {data.map((user, index) => (
-        <div key={index} className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-              <span className="text-sm font-medium text-primary">{index + 1}</span>
-            </div>
-            <span className="text-sm font-medium">{user.name}</span>
-          </div>
-          <span className="text-sm text-muted-foreground">{user.activity} ações</span>
+const TopUsers = ({ data, title }) => {
+  if (!data || data.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-card rounded-xl border border-border p-6"
+      >
+        <h3 className="text-lg font-semibold mb-4">{title}</h3>
+        <div className="flex items-center justify-center h-32">
+          <p className="text-muted-foreground">Nenhum dado disponível</p>
         </div>
-      ))}
-    </div>
-  </motion.div>
-);
+      </motion.div>
+    );
+  }
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-card rounded-xl border border-border p-6"
+    >
+      <h3 className="text-lg font-semibold mb-4">{title}</h3>
+      <div className="space-y-3">
+        {data.map((user, index) => (
+          <div key={index} className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                <span className="text-sm font-medium text-primary">{index + 1}</span>
+              </div>
+              <span className="text-sm font-medium">{user.name}</span>
+            </div>
+            <span className="text-sm text-muted-foreground">{user.activity} ações</span>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+};
 
 const TopRundowns = ({ data, title }) => (
   <motion.div

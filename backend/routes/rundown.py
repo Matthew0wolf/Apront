@@ -1,11 +1,13 @@
 from flask import Blueprint, jsonify, request
-from models import db, Rundown, RundownMember, Folder, Item, User
+from models import db, Rundown, RundownMember, Folder, Item, User, SystemEvent
 from flask import g
 from auth_utils import jwt_required, payment_required
 from limit_utils import limit_check, update_company_limits, log_usage
 from websocket_server import broadcast_rundown_update, broadcast_rundown_list_changed
 from sqlalchemy.orm import joinedload
 from cache_utils import cached, invalidate_rundown_cache, get_cache, set_cache, delete_cache, invalidate_company_cache, invalidate_user_cache
+import json
+import datetime
 
 rundown_bp = Blueprint('rundown', __name__, url_prefix='/api/rundowns')
 
@@ -37,11 +39,15 @@ def get_rundowns():
     # CRÍTICO: Filtrar apenas rundowns onde o usuário é membro
     # Isso garante que apenas usuários com acesso vejam os rundowns
     member_rundown_ids = [rm.rundown_id for rm in RundownMember.query.filter_by(user_id=user.id).all()]
+    
     if member_rundown_ids:
         rundowns = base_query.filter(Rundown.id.in_(member_rundown_ids)).all()
     else:
         # Se não for membro de nenhum rundown, retorna lista vazia
         rundowns = []
+    
+    # Debug: Log para verificar o que está sendo retornado
+    print(f"[GET RUNDOWNS] Usuário {user.id} (empresa {user.company_id}): {len(member_rundown_ids)} membros, {len(rundowns)} rundowns retornados")
     
     result = []
     for r in rundowns:
@@ -96,11 +102,15 @@ def get_rundowns():
 @jwt_required()
 @limit_check('create_rundown', 'rundown')
 def create_rundown():
-    from flask import g
-    import datetime
-    
     data = request.get_json()
-    name = data.get('name')
+    name = data.get('name', '').strip()
+    
+    # Validação: limite de 50 caracteres para o nome do projeto
+    if not name:
+        return jsonify({'error': 'Nome do projeto é obrigatório'}), 400
+    if len(name) > 50:
+        return jsonify({'error': 'Nome do projeto deve ter no máximo 50 caracteres'}), 400
+    
     type_ = data.get('type')
     created = data.get('created') or datetime.datetime.utcnow().isoformat()
     last_modified = data.get('lastModified') or datetime.datetime.utcnow().isoformat()
@@ -125,29 +135,73 @@ def create_rundown():
     # CRÍTICO: Vincular o rundown a TODOS os membros da empresa (como em templates.py e export.py)
     # Isso garante que todos os usuários da empresa possam ver e editar o rundown criado
     creator_id = g.current_user.id
+    
+    # PRIMEIRO: Sempre garantir que o criador seja vinculado (crítico)
+    try:
+        db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
+        print(f"[CREATE] Criador {creator_id} vinculado como owner (garantido)")
+    except Exception as e:
+        print(f"[CREATE] ⚠️ ERRO CRÍTICO ao vincular criador: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': 'Erro ao criar rundown: falha ao vincular criador'}), 500
+    
+    # DEPOIS: Vincular outros membros da empresa (não crítico)
     try:
         from models import User
         company_users = User.query.filter_by(company_id=g.current_user.company_id).all()
         for company_user in company_users:
-            # Verifica se já existe vínculo
-            existing = RundownMember.query.filter_by(rundown_id=rundown.id, user_id=company_user.id).first()
-            if not existing:
-                role = 'owner' if company_user.id == creator_id else 'member'
-                db.session.add(RundownMember(rundown_id=rundown.id, user_id=company_user.id, role=role))
-                print(f"[CREATE] Usuário {company_user.id} ({company_user.name}) vinculado como {role}")
+            if company_user.id != creator_id:  # Criador já foi vinculado
+                # Verifica se já existe vínculo
+                existing = RundownMember.query.filter_by(rundown_id=rundown.id, user_id=company_user.id).first()
+                if not existing:
+                    db.session.add(RundownMember(rundown_id=rundown.id, user_id=company_user.id, role='member'))
+                    print(f"[CREATE] Usuário {company_user.id} ({company_user.name}) vinculado como member")
     except Exception as e:
-        print(f"[CREATE] ⚠️ Erro ao vincular usuários da empresa: {e}")
-        # Se der erro, pelo menos vincula ao criador
-        try:
-            db.session.add(RundownMember(rundown_id=rundown.id, user_id=creator_id, role='owner'))
-            print(f"[CREATE] Apenas criador vinculado como owner")
-        except Exception:
-            pass
+        print(f"[CREATE] ⚠️ Erro ao vincular outros usuários da empresa (não crítico): {e}")
+        # Continua mesmo se falhar - o criador já está vinculado
     
-    db.session.commit()
+    # Commit da criação do rundown e vínculos
+    try:
+        db.session.commit()
+        print(f"[CREATE] ✅ Rundown {rundown.id} criado e commitado com sucesso")
+    except Exception as e:
+        print(f"[CREATE] ❌ ERRO ao fazer commit: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': f'Erro ao criar rundown: {str(e)}'}), 500
     
     # Loga o uso
     log_usage(g.current_user.company_id, g.current_user.id, 'create_rundown', 'rundown', rundown.id, {'name': rundown.name})
+    
+    # Criar evento de auditoria (não crítico - se falhar, o rundown já foi criado)
+    try:
+        audit_event = SystemEvent(
+            event_type='rundown.created',
+            user_id=g.current_user.id,
+            company_id=g.current_user.company_id,
+            resource_type='rundown',
+            resource_id=rundown.id,
+            metadata_json=json.dumps({
+                'name': rundown.name,
+                'type': rundown.type,
+                'project_name': rundown.name
+            }),
+            created_at=datetime.datetime.utcnow(),
+            ip_address=request.remote_addr[:50] if request.remote_addr else None,
+            user_agent=request.headers.get('User-Agent', '')[:200] if request.headers else None
+        )
+        db.session.add(audit_event)
+        db.session.commit()
+    except Exception as e:
+        print(f"⚠️ Erro ao criar evento de auditoria (não crítico - rundown já criado): {e}")
+        import traceback
+        traceback.print_exc()
+        # Não faz rollback - o rundown já foi commitado com sucesso
+        # Apenas expira a sessão para evitar problemas futuros
+        db.session.expire_all()
     
     # CRÍTICO: Invalidar cache de TODOS os usuários da empresa
     # Isso garante que todos vejam o novo rundown imediatamente
@@ -219,6 +273,15 @@ def update_rundown(rundown_id):
     # para fazer ajustes em tempo real se necessário
     
     data = request.get_json()
+    
+    # Validação: limite de 50 caracteres para o nome do projeto
+    if 'name' in data:
+        name = data['name'].strip() if isinstance(data['name'], str) else str(data['name']).strip()
+        if len(name) > 50:
+            return jsonify({'error': 'Nome do projeto deve ter no máximo 50 caracteres'}), 400
+        if not name:
+            return jsonify({'error': 'Nome do projeto é obrigatório'}), 400
+        data['name'] = name
     
     # Armazena as mudanças para notificar via WebSocket
     changes = {}
@@ -316,7 +379,33 @@ def update_rundown(rundown_id):
         
         # Incluir items salvos na resposta para que o frontend atualize os IDs temporários
         changes['items'] = saved_items
-        print(f"[UPDATE] Pastas e itens salvos para rundown {rundown_id}. Total: {len(saved_folders)} pastas")
+        
+        # Contar total de pastas e itens para auditoria
+        total_items = sum(len(folder.get('children', [])) for folder in saved_items)
+        
+        # Criar evento de auditoria para modificação da estrutura
+        try:
+            audit_event = SystemEvent(
+                event_type='rundown.structure_updated',
+                user_id=user.id,
+                company_id=user.company_id,
+                resource_type='rundown',
+                resource_id=rundown_id,
+                metadata_json=json.dumps({
+                    'project_name': rundown.name,
+                    'folders_count': len(saved_folders),
+                    'items_count': total_items,
+                    'action': 'modificou a estrutura do projeto'
+                }),
+                created_at=datetime.datetime.utcnow(),
+                ip_address=request.remote_addr[:50] if request.remote_addr else None,
+                user_agent=request.headers.get('User-Agent', '')[:200] if request.headers else None
+            )
+            db.session.add(audit_event)
+        except Exception as e:
+            print(f"⚠️ Erro ao criar evento de auditoria (não crítico): {e}")
+        
+        print(f"[UPDATE] Pastas e itens salvos para rundown {rundown_id}. Total: {len(saved_folders)} pastas, {total_items} itens")
     
     # Atualiza last_modified
     rundown.last_modified = datetime.datetime.utcnow().isoformat()
@@ -536,6 +625,9 @@ def delete_rundown(rundown_id):
     # se necessário (embora não seja recomendado)
     
     try:
+        # Salvar nome do rundown antes de deletar (para auditoria)
+        rundown_name = rundown.name
+        
         # Deletar membros do rundown primeiro (cascade deve fazer isso, mas garantimos)
         from models import RundownMember
         RundownMember.query.filter_by(rundown_id=rundown_id).delete()
@@ -543,6 +635,28 @@ def delete_rundown(rundown_id):
         # Deletar o rundown (cascade deleta folders e items automaticamente)
         db.session.delete(rundown)
         db.session.commit()
+        
+        # Criar evento de auditoria (não crítico - se falhar, o rundown já foi deletado)
+        try:
+            audit_event = SystemEvent(
+                event_type='rundown.deleted',
+                user_id=user.id,
+                company_id=user.company_id,
+                resource_type='rundown',
+                resource_id=rundown_id,
+                metadata_json=json.dumps({
+                    'name': rundown_name,
+                    'project_name': rundown_name
+                }),
+                created_at=datetime.datetime.utcnow(),
+                ip_address=request.remote_addr[:50] if request.remote_addr else None,
+                user_agent=request.headers.get('User-Agent', '')[:200] if request.headers else None
+            )
+            db.session.add(audit_event)
+            db.session.commit()
+        except Exception as e:
+            print(f"⚠️ Erro ao criar evento de auditoria (não crítico - rundown já deletado): {e}")
+            db.session.rollback()
         
         # CRÍTICO: Invalidar cache da lista de rundowns para TODOS os usuários da empresa
         # Isso garante que todos vejam a lista atualizada (operador, apresentador, etc.)

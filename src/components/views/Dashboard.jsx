@@ -1,29 +1,154 @@
-import React, { useContext, useMemo } from 'react';
+import React, { useContext, useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Play, FolderOpen, ChevronRight, ExternalLink, Clock, 
-  TrendingUp, Users, Folder, Calendar, Award, Zap 
+  Play, FolderOpen, Clock, Users, Folder, Calendar, 
+  Film, Edit3, BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRundown } from '@/contexts/RundownContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { useTheme } from '@/contexts/ThemeContext.jsx';
+import { API_BASE_URL } from '@/config/api';
+import Footer from '@/components/shared/Footer.jsx';
+
+// Componente helper para botão estilizado (mesmo estilo da top bar)
+const StyledButton = ({ children, onClick, isLight, className = '', Icon, iconClassName = '' }) => {
+  return (
+    <button
+      className={`relative h-[38px] px-3 transition-all font-medium overflow-hidden cursor-pointer group flex items-center gap-2 ${className}`}
+      style={{
+        backgroundColor: isLight ? 'rgba(229,229,229,0.5)' : '#0C0C0C',
+        color: isLight ? '#080808' : '#ffffff'
+      }}
+      onClick={onClick}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = isLight ? 'rgba(229,229,229,0.7)' : '#171717';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = isLight ? 'rgba(229,229,229,0.5)' : '#0C0C0C';
+      }}
+    >
+      {/* Borda principal com 20% de opacidade */}
+      <div 
+        className="absolute inset-0 border pointer-events-none transition-colors" 
+        style={{ 
+          borderColor: isLight ? 'rgba(8,8,8,0.2)' : 'rgba(255, 255, 255, 0.2)'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.borderColor = isLight ? 'rgba(8,8,8,0.4)' : 'rgba(255, 255, 255, 0.4)';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.borderColor = isLight ? 'rgba(8,8,8,0.2)' : 'rgba(255, 255, 255, 0.2)';
+        }}
+      />
+      
+      {/* Cantos decorativos */}
+      <div className="absolute top-0 left-0 w-[9.822px] h-[8.929px] border-t border-l pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }} />
+      <div className="absolute bottom-0 left-0 w-[8.929px] h-[9.822px] border-b border-l pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }} />
+      <div className="absolute top-0 right-0 w-[8.929px] h-[9.822px] border-t border-r pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }} />
+      <div className="absolute bottom-0 right-0 w-[9.822px] h-[8.929px] border-b border-r pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }} />
+      
+      {/* Conteúdo */}
+      <div className="relative z-10 flex items-center gap-2">
+        {Icon && <Icon className={`w-4 h-4 flex-shrink-0 ${iconClassName}`} style={{ color: isLight ? '#080808' : '#ffffff' }} />}
+        <span className="text-sm font-medium leading-none whitespace-nowrap" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+          {children}
+        </span>
+      </div>
+    </button>
+  );
+};
+
+// Componente helper para aplicar estilo de botão da top bar
+const StyledCard = ({ children, className = '', onClick, isLight }) => {
+  return (
+    <div
+      className={`relative overflow-hidden cursor-pointer transition-all ${className}`}
+      onClick={onClick}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = isLight ? 'rgba(229,229,229,0.7)' : '#171717';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = isLight ? 'rgba(229,229,229,0.5)' : '#0C0C0C';
+      }}
+      style={{
+        backgroundColor: isLight ? 'rgba(229,229,229,0.5)' : '#0C0C0C'
+      }}
+    >
+      {/* Borda principal com 20% de opacidade */}
+      <div 
+        className="absolute inset-0 border pointer-events-none transition-colors" 
+        style={{ 
+          borderColor: isLight ? 'rgba(8,8,8,0.2)' : 'rgba(255, 255, 255, 0.2)'
+        }}
+        onMouseEnter={(e) => {
+          e.target.style.borderColor = isLight ? 'rgba(8,8,8,0.4)' : 'rgba(255, 255, 255, 0.4)';
+        }}
+        onMouseLeave={(e) => {
+          e.target.style.borderColor = isLight ? 'rgba(8,8,8,0.2)' : 'rgba(255, 255, 255, 0.2)';
+        }}
+      />
+      
+      {/* Cantos decorativos - 100% de opacidade */}
+      {/* Canto superior esquerdo */}
+      <div 
+        className="absolute top-0 left-0 w-[9.822px] h-[8.929px] border-t border-l pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }}
+      />
+      
+      {/* Canto inferior esquerdo */}
+      <div 
+        className="absolute bottom-0 left-0 w-[8.929px] h-[9.822px] border-b border-l pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }}
+      />
+      
+      {/* Canto superior direito */}
+      <div 
+        className="absolute top-0 right-0 w-[8.929px] h-[9.822px] border-t border-r pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }}
+      />
+      
+      {/* Canto inferior direito */}
+      <div 
+        className="absolute bottom-0 right-0 w-[9.822px] h-[8.929px] border-b border-r pointer-events-none" 
+        style={{ borderColor: isLight ? 'rgba(8,8,8,1)' : 'rgba(255, 255, 255, 1)' }}
+      />
+      
+      {/* Conteúdo */}
+      <div className="relative z-10">
+        {children}
+      </div>
+    </div>
+  );
+};
 
 const Dashboard = () => {
   const { rundowns } = useRundown();
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
+  const [auditEvents, setAuditEvents] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
 
-  // Pega os 4 projetos mais recentes para "Acesso Rápido"
-  const recentProjects = rundowns.slice(0, 4);
-
-  // Calcula estatísticas
+  // Calcula estatísticas conforme Figma
   const stats = useMemo(() => {
-    const totalProjects = rundowns.length;
-    const liveProjects = rundowns.filter(r => r.status === 'live' || r.status === 'Ao Vivo').length;
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     
-    // Calcula total de horas (converte duração de string para minutos)
-  const totalMinutes = rundowns.reduce((acc, r) => {
+    // Transmissões este mês (rundowns criados ou ao vivo este mês)
+    const transmissionsThisMonth = rundowns.filter(r => {
+      const created = new Date(r.created || r.last_modified);
+      return created >= firstDayOfMonth;
+    }).length;
+    
+    // Tempo total ao vivo (simplificado - soma das durações)
+    let totalMinutes = rundowns.reduce((acc, r) => {
       const duration = r.duration || '0';
       const match = duration.match(/(\d+)h?\s*(\d+)?/);
       if (match) {
@@ -33,380 +158,417 @@ const Dashboard = () => {
       }
       return acc;
     }, 0);
-    const totalHours = Math.floor(totalMinutes / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
     
-    // Projetos desta semana (simplificado - últimos 7 dias)
-    const today = new Date();
-    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const thisWeekProjects = rundowns.filter(r => {
-      const created = new Date(r.created || r.last_modified);
-      return created >= weekAgo;
-    }).length;
+    // Alterações este mês (simplificado - usa modificações)
+    const changesThisMonth = rundowns.filter(r => {
+      const modified = new Date(r.last_modified || r.created);
+      return modified >= firstDayOfMonth;
+    }).length * 3; // Multiplica por 3 como aproximação
+    
+    // Membros na equipe (simplificado - soma os team_members de cada projeto)
+    const teamMembers = rundowns.reduce((acc, r) => {
+      return acc + (r.team_members || 1);
+    }, 0);
+    const avgTeamMembers = rundowns.length > 0 ? Math.max(1, Math.floor(teamMembers / rundowns.length)) : 0;
+    
+    // Projetos existentes
+    const existingProjects = rundowns.length;
     
     return {
-      totalProjects,
-      liveProjects,
-      totalHours,
-      thisWeekProjects
+      transmissionsThisMonth: transmissionsThisMonth,
+      totalHoursLive: hours,
+      totalMinutesLive: minutes,
+      changesThisMonth: changesThisMonth,
+      teamMembers: avgTeamMembers,
+      existingProjects: existingProjects
     };
   }, [rundowns]);
+
+  // Carrega eventos de auditoria
+  useEffect(() => {
+    const loadAuditEvents = async () => {
+      try {
+        setLoadingEvents(true);
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await fetch(`${API_BASE_URL}/api/notifications/events?limit=6`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setAuditEvents(data.events || []);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar eventos de auditoria:', error);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+    
+    loadAuditEvents();
+    
+    // Recarrega eventos a cada 20 minutos para manter atualizado
+    const interval = setInterval(loadAuditEvents, 20 * 60 * 1000); // 20 minutos
+    
+    return () => clearInterval(interval);
+  }, [rundowns.length]); // Recarrega quando o número de rundowns mudar
+
+  // Formata tempo relativo
+  const formatTimeAgo = (dateString) => {
+    if (!dateString) return 'Há pouco tempo';
+    
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 2) return 'Há 2 min.';
+    if (diffMins < 60) return `Há ${diffMins} min.`;
+    if (diffHours < 2) return 'Há 2 horas';
+    if (diffHours < 24) return `Há ${diffHours} horas`;
+    if (diffDays === 1) return 'Há 1 dia';
+    return `Há ${diffDays} dias`;
+  };
+
+  // Formata evento para exibição
+  const formatEventAction = (event) => {
+    const eventType = event.event_type || '';
+    const metadata = event.metadata || {};
+    const resourceType = event.resource_type || '';
+    const resourceName = metadata.name || metadata.resource_name || metadata.project_name || 'Recurso';
+    const companyName = event.company_name || 'Sistema';
+    
+    // Criação de projeto/rundown
+    if (eventType.includes('rundown.created') || eventType.includes('project.created')) {
+      return {
+        action: `Criou o projeto`,
+        resource: resourceName,
+        in: companyName
+      };
+    }
+    
+    // Deleção de projeto/rundown
+    if (eventType.includes('rundown.deleted') || eventType.includes('project.deleted')) {
+      return {
+        action: `Deletou o projeto`,
+        resource: resourceName,
+        in: companyName
+      };
+    }
+    
+    // Atualização de script
+    if (eventType.includes('script_updated') || eventType.includes('script.added')) {
+      const itemTitle = metadata.item_title || 'evento';
+      return {
+        action: metadata.has_script ? `Adicionou script ao evento` : `Modificou script do evento`,
+        resource: itemTitle,
+        in: metadata.project_name || 'Projeto'
+      };
+    }
+    
+    // Modificação da estrutura do projeto
+    if (eventType.includes('structure_updated') || eventType.includes('rundown.updated')) {
+      return {
+        action: `Modificou a estrutura do projeto`,
+        resource: resourceName,
+        in: companyName
+      };
+    }
+    
+    // Adição de evento/item
+    if (eventType.includes('item.add') || eventType.includes('event.add')) {
+      return {
+        action: `Adicionou o evento`,
+        resource: resourceName || 'Evento',
+        in: metadata.project_name || resourceName
+      };
+    }
+    
+    // Remoção de pasta/item
+    if (eventType.includes('item.remove') || eventType.includes('folder.remove')) {
+      return {
+        action: `Removeu`,
+        resource: resourceName || 'item',
+        in: metadata.project_name || 'Projeto'
+      };
+    }
+    
+    // Login/entrada
+    if (eventType.includes('login') || eventType.includes('entrou')) {
+      return {
+        action: `Entrou como`,
+        resource: event.user_role || 'Usuário',
+        in: metadata.project_name || companyName
+      };
+    }
+    
+    return {
+      action: 'Realizou ação em',
+      resource: resourceName || 'Recurso',
+      in: metadata.project_name || companyName
+    };
+  };
 
   const openProject = (rundownId) => {
     navigate(`/rundown/${rundownId}`);
   };
 
-  // Formata duração para exibição
-  const formatDuration = (duration) => {
-    if (!duration) return '0min';
-    return duration;
-  };
-
-  // Obtém status badge color
-  const getStatusColor = (status) => {
-    switch(status?.toLowerCase()) {
-      case 'live':
-      case 'ao vivo':
-        return 'bg-primary text-white';
-      case 'novo':
-        return 'bg-green-600 text-white';
-      case 'concluído':
-      case 'concluido':
-        return 'bg-gray-600 text-white';
-      default:
-        return 'bg-blue-600 text-white';
-    }
-  };
-
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero Section - Banner Unificado */}
-      <section className="relative overflow-hidden">
-        <div className="container mx-auto px-3 sm:px-6 py-6 sm:py-12">
+      {/* Hero Section - Banner do Figma */}
+      <section className="relative w-full mb-6 sm:mb-8">
+        <div className="container mx-auto px-3 sm:px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-gradient-to-br from-primary via-primary/90 to-primary/80 rounded-xl sm:rounded-2xl overflow-hidden shadow-2xl"
+            className="relative w-full overflow-hidden rounded-xl sm:rounded-2xl shadow-2xl"
           >
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8 items-center p-4 sm:p-8 lg:p-12">
-              {/* Texto do Banner */}
-              <div className="text-white">
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl xl:text-5xl font-bold mb-3 sm:mb-4">
-                  Versão 1.0 Lançada!
-                </h1>
-                <p className="text-base sm:text-lg lg:text-xl mb-6 sm:mb-8 opacity-90">
-                  Confira todas as atualizações da Apront 1.0
-                </p>
-                <Button 
-                  className="bg-black hover:bg-black/90 text-white px-6 sm:px-8 py-4 sm:py-6 text-base sm:text-lg h-auto rounded-lg shadow-lg"
-                >
-                  Saiba Mais
-                </Button>
-              </div>
-
-              {/* Mockup do Notebook */}
-              <div className="relative hidden sm:block">
-                {/* Moldura do Notebook */}
-                <div className="relative bg-black rounded-t-xl border-4 sm:border-8 border-gray-900 shadow-2xl">
-                  {/* Webcam do Notebook */}
-                  <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-800 rounded-full"></div>
-                  
-                  {/* Tela do Notebook */}
-                  <div className="bg-black p-4 sm:p-6 lg:p-8 aspect-video">
-                    <div className="space-y-3">
-                      {/* Header "AO VIVO" */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-primary rounded-full animate-pulse"></div>
-                          <span className="text-primary font-bold text-xs sm:text-sm lg:text-base">AO VIVO</span>
-                        </div>
-                        <span className="text-white font-mono text-xs lg:text-sm">16:40:20</span>
-                      </div>
-
-                      {/* Seção "AGORA" */}
-                      <div className="bg-primary/20 border border-primary/30 rounded-lg p-2 sm:p-3 lg:p-4">
-                        <span className="text-primary text-xs font-bold">AGORA</span>
-                        <div className="flex items-center justify-between mt-1 sm:mt-2">
-                          <div className="flex items-center gap-1 sm:gap-2">
-                            <Play className="w-3 h-3 sm:w-4 sm:h-4 text-white fill-white flex-shrink-0" />
-                            <div>
-                              <p className="text-white font-semibold text-xs lg:text-sm">Introdução</p>
-                              <p className="text-white/70 text-xs hidden lg:block">Apresente o início da transmissão</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-white/70 text-xs">Restante</p>
-                            <p className="text-white font-bold text-xs sm:text-sm">00:09</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Próximos Eventos */}
-                      <div>
-                        <p className="text-white/70 text-xs mb-1 sm:mb-2">Próximos Eventos</p>
-                        <div className="space-y-1 sm:space-y-1.5">
-                          {['Partida', 'Pré-Jogo', 'Intervalo'].map((event, i) => (
-                            <div key={i} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-1 sm:gap-2">
-                                <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-primary rounded-full"></div>
-                                <span className="text-white">{event}</span>
-                              </div>
-                              <span className="text-white/70 font-mono">{['45:00', '20:00', '10:00'][i]}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Base/Teclado do Notebook */}
-                <div className="relative h-3 bg-gradient-to-b from-gray-900 to-black rounded-b-xl shadow-lg">
-                  <div className="absolute inset-x-0 top-0 h-px bg-gray-800"></div>
-                </div>
-                
-                {/* Sombra do Notebook */}
-                <div className="absolute -bottom-2 inset-x-4 h-2 bg-black/30 blur-xl rounded-full"></div>
-              </div>
+            {/* Imagem completa do banner do Figma */}
+            <div className="relative w-full flex justify-center">
+              <img 
+                src="http://localhost:3845/assets/f5ed6bcfdae3f83e65d47a945ddbdb89bb80b407.png"
+                alt="Apront Versão 1.0 Lançada - Banner"
+                className="w-full max-w-full h-auto object-contain"
+              />
+              
+              {/* Área clicável transparente sobre o botão fake da imagem */}
+              <button
+                onClick={() => navigate('/updates')}
+                className="absolute left-[3.5%] bottom-[9%] w-[152px] h-[56px] sm:left-[4%] sm:bottom-[11%] sm:w-[162px] sm:h-[60px] lg:left-[5.5%] lg:bottom-[13%] lg:w-[180px] lg:h-[65px] bg-transparent cursor-pointer z-10 border-0 p-0 m-0 outline-none"
+                style={{ 
+                  fontFamily: "'Darker Grotesque', sans-serif",
+                  boxShadow: 'none',
+                  backgroundColor: 'transparent'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+                aria-label="Saiba Mais sobre a Versão 1.0"
+              >
+                <span className="sr-only">Saiba Mais</span>
+              </button>
             </div>
           </motion.div>
         </div>
       </section>
 
-      {/* Estatísticas */}
+      {/* Estatísticas Rápidas - Conforme Figma */}
       <section className="container mx-auto px-3 sm:px-6 py-6 sm:py-8">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
-          {/* Total de Projetos */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 sm:mb-8 gap-4">
+          <h2 className="text-3xl sm:text-[48px] font-extrabold" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+            Estatísticas Rápidas
+          </h2>
+          <StyledButton
+            onClick={() => navigate('/analytics')}
+            isLight={isLight}
+            Icon={BarChart3}
+          >
+            Ir para Analytics
+          </StyledButton>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
+          {/* Estatística 1: Transmissões este mês */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg sm:rounded-xl p-4 sm:p-6 text-white shadow-lg"
           >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <Folder className="w-6 h-6 sm:w-8 sm:h-8 opacity-80" />
-              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 opacity-60" />
-            </div>
-            <h3 className="text-2xl sm:text-3xl font-bold mb-1">{stats.totalProjects}</h3>
-            <p className="text-white/80 text-sm sm:text-base">Total de Projetos</p>
+            <StyledCard isLight={isLight} className="min-h-[201px] p-4 sm:p-6">
+              <div className="flex flex-col h-full justify-between">
+                <Film className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 mb-4" style={{ color: '#e71d36' }} />
+                <div>
+                  <h3 className="text-3xl sm:text-4xl lg:text-[50px] font-extrabold mb-2" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                    {stats.transmissionsThisMonth}
+                  </h3>
+                  <p className="text-base sm:text-lg lg:text-[33px] font-medium" style={{ color: isLight ? 'rgba(8,8,8,0.7)' : 'rgba(255,255,255,0.7)' }}>
+                    Transmissões este mês
+                  </p>
+                </div>
+              </div>
+            </StyledCard>
           </motion.div>
 
-          {/* Projetos Ao Vivo */}
+          {/* Estatística 2: Tempo total ao vivo */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-gradient-to-br from-primary to-primary/90 rounded-lg sm:rounded-xl p-4 sm:p-6 text-white shadow-lg"
           >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <Zap className="w-6 h-6 sm:w-8 sm:h-8 opacity-80" />
-              {stats.liveProjects > 0 && (
-                <div className="flex items-center gap-1">
-                  <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse"></div>
-                  <span className="text-xs font-bold">LIVE</span>
+            <StyledCard isLight={isLight} className="min-h-[201px] p-4 sm:p-6">
+              <div className="flex flex-col h-full justify-between">
+                <Clock className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 mb-4" style={{ color: '#e71d36' }} />
+                <div>
+                  <h3 className="text-3xl sm:text-4xl lg:text-[50px] font-extrabold mb-2" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                    {stats.totalHoursLive}h {stats.totalMinutesLive}m
+                  </h3>
+                  <p className="text-base sm:text-lg lg:text-[33px] font-medium" style={{ color: isLight ? 'rgba(8,8,8,0.7)' : 'rgba(255,255,255,0.7)' }}>
+                    Tempo total ao vivo
+                  </p>
                 </div>
-              )}
-            </div>
-            <h3 className="text-2xl sm:text-3xl font-bold mb-1">{stats.liveProjects}</h3>
-            <p className="text-white/80 text-sm sm:text-base">Projetos Ao Vivo</p>
+              </div>
+            </StyledCard>
           </motion.div>
 
-          {/* Horas de Conteúdo */}
+          {/* Estatística 3: Alterações este mês */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg sm:rounded-xl p-4 sm:p-6 text-white shadow-lg"
           >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <Clock className="w-6 h-6 sm:w-8 sm:h-8 opacity-80" />
-              <Award className="w-4 h-4 sm:w-5 sm:h-5 opacity-60" />
-            </div>
-            <h3 className="text-2xl sm:text-3xl font-bold mb-1">{stats.totalHours}h</h3>
-            <p className="text-white/80 text-sm sm:text-base">Horas de Conteúdo</p>
+            <StyledCard isLight={isLight} className="min-h-[201px] p-4 sm:p-6">
+              <div className="flex flex-col h-full justify-between">
+                <Edit3 className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 mb-4" style={{ color: '#e71d36' }} />
+                <div>
+                  <h3 className="text-3xl sm:text-4xl lg:text-[50px] font-extrabold mb-2" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                    {stats.changesThisMonth}
+                  </h3>
+                  <p className="text-base sm:text-lg lg:text-[33px] font-medium" style={{ color: isLight ? 'rgba(8,8,8,0.7)' : 'rgba(255,255,255,0.7)' }}>
+                    Alterações este mês
+                  </p>
+                </div>
+              </div>
+            </StyledCard>
           </motion.div>
 
-          {/* Projetos Esta Semana */}
+          {/* Estatística 4: Membros na equipe */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="bg-gradient-to-br from-green-600 to-green-700 rounded-lg sm:rounded-xl p-4 sm:p-6 text-white shadow-lg"
           >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <Calendar className="w-6 h-6 sm:w-8 sm:h-8 opacity-80" />
-              <span className="text-xs font-bold bg-white/20 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded">7 dias</span>
-            </div>
-            <h3 className="text-2xl sm:text-3xl font-bold mb-1">{stats.thisWeekProjects}</h3>
-            <p className="text-white/80 text-sm sm:text-base">Projetos Esta Semana</p>
+            <StyledCard isLight={isLight} className="min-h-[201px] p-4 sm:p-6">
+              <div className="flex flex-col h-full justify-between">
+                <Users className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 mb-4" style={{ color: '#e71d36' }} />
+                <div>
+                  <h3 className="text-3xl sm:text-4xl lg:text-[50px] font-extrabold mb-2" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                    {stats.teamMembers}
+                  </h3>
+                  <p className="text-base sm:text-lg lg:text-[33px] font-medium" style={{ color: isLight ? 'rgba(8,8,8,0.7)' : 'rgba(255,255,255,0.7)' }}>
+                    Membros na equipe
+                  </p>
+                </div>
+              </div>
+            </StyledCard>
+          </motion.div>
+
+          {/* Estatística 5: Projetos existentes */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+          >
+            <StyledCard isLight={isLight} className="min-h-[201px] p-4 sm:p-6">
+              <div className="flex flex-col h-full justify-between">
+                <Folder className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 mb-4" style={{ color: '#e71d36' }} />
+                <div>
+                  <h3 className="text-3xl sm:text-4xl lg:text-[50px] font-extrabold mb-2" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                    {stats.existingProjects}
+                  </h3>
+                  <p className="text-base sm:text-lg lg:text-[33px] font-medium" style={{ color: isLight ? 'rgba(8,8,8,0.7)' : 'rgba(255,255,255,0.7)' }}>
+                    Projetos existentes
+                  </p>
+                </div>
+              </div>
+            </StyledCard>
           </motion.div>
         </div>
       </section>
 
-      {/* Acesso Rápido */}
-      <section className="container mx-auto px-3 sm:px-6 py-8 sm:py-12">
+      {/* Registro de Auditoria - Conforme Figma */}
+      <section className="container mx-auto px-3 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 sm:mb-8 gap-4">
-          <h2 className="text-2xl sm:text-3xl font-bold">Acesso Rápido</h2>
-          <Button
-            variant="outline"
-            onClick={() => navigate('/projects')}
-            className="gap-2 w-full sm:w-auto"
-          >
-            <FolderOpen className="w-4 h-4" />
-            Ir para Meus Roteiros
-          </Button>
+          <h2 className="text-3xl sm:text-[48px] font-extrabold" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+            Registro de Auditoria
+          </h2>
+          {user?.role === 'admin' && (
+            <StyledButton
+              onClick={() => navigate('/auditoria')}
+              isLight={isLight}
+              Icon={BarChart3}
+            >
+              Ver Todos os Logs
+            </StyledButton>
+          )}
         </div>
 
-        {recentProjects.length === 0 ? (
-          <div className="text-center py-12 sm:py-16">
-            <p className="text-muted-foreground text-base sm:text-lg mb-4">
-              Nenhum projeto criado ainda
-            </p>
-            <Button onClick={() => navigate('/projects')} className="w-full sm:w-auto">
-              Criar Primeiro Projeto
-            </Button>
+        {loadingEvents ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Carregando eventos...</p>
+          </div>
+        ) : auditEvents.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">Nenhum evento de auditoria encontrado.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {recentProjects.map((project, index) => (
-            <motion.div
-              key={project.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-card border border-border rounded-lg sm:rounded-xl overflow-hidden hover:shadow-xl hover:border-primary/50 transition-all relative group cursor-pointer"
-                onClick={() => openProject(project.id)}
-              >
-                {/* Header com Gradiente */}
-                <div className={`p-3 sm:p-4 ${
-                  project.status?.toLowerCase() === 'ao vivo' || project.status?.toLowerCase() === 'live'
-                    ? 'bg-gradient-to-r from-primary to-primary/90'
-                    : 'bg-gradient-to-r from-gray-700 to-gray-800'
-                } text-white`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusColor(project.status)}`}>
-                      {project.status || 'Novo'}
-                    </span>
-                    {(project.status?.toLowerCase() === 'ao vivo' || project.status?.toLowerCase() === 'live') && (
-                      <div className="flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-white rounded-full animate-pulse"></div>
-                        <span className="text-xs font-bold">LIVE</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6">
+            {auditEvents.slice(0, 6).map((event, index) => {
+              const eventAction = formatEventAction(event);
+              const userRole = event.user_role || event.metadata?.role || 'Operador';
+              const isPresenter = userRole?.toLowerCase().includes('apresentador');
+              
+              return (
+                <motion.div
+                  key={event.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                >
+                  <StyledCard isLight={isLight} className="h-[180px] p-3 sm:p-4">
+                    <div className="flex flex-col h-full">
+                      {/* Avatar e nome do usuário */}
+                      <div className="flex items-start gap-3 mb-3 flex-shrink-0">
+                        <img
+                          src={event.user_avatar ? `${API_BASE_URL}/api/user/avatar/${event.user_avatar}?t=${Date.now()}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(event.user_name || 'Usuário')}&background=random&rounded=true`}
+                          alt={`Avatar de ${event.user_name}`}
+                          className="w-8 h-8 sm:w-9 sm:h-9 lg:w-[39px] lg:h-[39px] rounded-full object-cover flex-shrink-0"
+                          onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(event.user_name || 'Usuário')}&background=random&rounded=true`; }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-lg sm:text-xl lg:text-[25px] font-extrabold truncate" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                            {event.user_name || 'Usuário'}
+                          </p>
+                          <p className="text-sm sm:text-base lg:text-[16px] font-medium truncate" style={{ color: isLight ? 'rgba(8,8,8,0.5)' : 'rgba(255,255,255,0.5)' }}>
+                            {userRole} | {formatTimeAgo(event.created_at)}
+                          </p>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                  <h3 className="font-bold text-base sm:text-lg line-clamp-2">
-                    {project.name || `Projeto ${project.id}`}
-                  </h3>
-                </div>
 
-                {/* Conteúdo */}
-                <div className="p-3 sm:p-4">
-                  {/* Tipo do Projeto */}
-                  <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
-                    <Folder className="w-4 h-4" />
-                    <span>{project.type || 'Transmissão'}</span>
-                  </div>
-
-                  {/* Informações */}
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center justify-between text-xs sm:text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3 sm:w-4 sm:h-4" />
-                        Duração
-                      </span>
-                      <span className="font-semibold">{formatDuration(project.duration)}</span>
+                      {/* Ação */}
+                      <div className="flex-1 flex flex-col justify-end min-h-0">
+                        <p className="text-sm sm:text-base lg:text-[20px] font-medium leading-tight line-clamp-2" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                          <span>{eventAction.action} </span>
+                          <span className="font-bold underline" style={{ color: '#e71d36' }}>
+                            {eventAction.resource}
+                          </span>
+                        </p>
+                        <p className="text-sm sm:text-base lg:text-[20px] font-medium leading-tight mt-1 line-clamp-1" style={{ color: isLight ? '#080808' : '#ffffff' }}>
+                          <span>em </span>
+                          <span className="font-bold underline" style={{ color: '#e71d36' }}>
+                            {eventAction.in}
+                          </span>
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between text-xs sm:text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Users className="w-3 h-3 sm:w-4 sm:h-4" />
-                        Equipe
-                      </span>
-                      <span className="font-semibold">{project.team_members || 1} {project.team_members === 1 ? 'membro' : 'membros'}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs sm:text-sm">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
-                        Modificado
-                      </span>
-                      <span className="font-semibold">{project.last_modified || project.created || 'Hoje'}</span>
-                    </div>
-                  </div>
-
-                  {/* Botão Abrir Projeto */}
-                  <Button 
-                    className="w-full bg-primary hover:bg-primary/90 text-white gap-2 text-sm sm:text-base"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openProject(project.id);
-                    }}
-                  >
-                    <Play className="w-4 h-4 fill-white" />
-                    Abrir Projeto
-                  </Button>
-                </div>
-            </motion.div>
-          ))}
-        </div>
+                  </StyledCard>
+                </motion.div>
+              );
+            })}
+          </div>
         )}
-      </section>
-
-      {/* Atalhos Rápidos */}
-      <section className="container mx-auto px-3 sm:px-6 pb-8 sm:pb-12">
-        <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6">Atalhos Rápidos</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {/* Criar Novo Projeto */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.5 }}
-            onClick={() => navigate('/projects')}
-            className="bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg sm:rounded-xl p-4 sm:p-6 text-left transition-all shadow-lg hover:shadow-xl group"
-          >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                <FolderOpen className="w-5 h-5 sm:w-6 sm:h-6" />
-              </div>
-              <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold mb-2">Criar Novo Projeto</h3>
-            <p className="text-white/80 text-xs sm:text-sm">Comece um novo roteiro do zero ou use um template</p>
-          </motion.button>
-
-          {/* Explorar Modelos */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.6 }}
-            onClick={() => navigate('/templates')}
-            className="bg-gradient-to-br from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white rounded-lg sm:rounded-xl p-4 sm:p-6 text-left transition-all shadow-lg hover:shadow-xl group"
-          >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                <Award className="w-5 h-5 sm:w-6 sm:h-6" />
-              </div>
-              <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold mb-2">Explorar Modelos</h3>
-            <p className="text-white/80 text-xs sm:text-sm">Descubra templates prontos da comunidade</p>
-          </motion.button>
-
-          {/* Gerenciar Equipe */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.7 }}
-            onClick={() => navigate('/team')}
-            className="bg-gradient-to-br from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-lg sm:rounded-xl p-4 sm:p-6 text-left transition-all shadow-lg hover:shadow-xl group"
-          >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                <Users className="w-5 h-5 sm:w-6 sm:h-6" />
-              </div>
-              <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <h3 className="text-lg sm:text-xl font-bold mb-2">Gerenciar Equipe</h3>
-            <p className="text-white/80 text-xs sm:text-sm">Adicione membros e gerencie permissões</p>
-          </motion.button>
-        </div>
       </section>
 
       {/* Mensagem de Boas-Vindas (somente para novos usuários) */}
@@ -442,6 +604,9 @@ const Dashboard = () => {
           </motion.div>
         </section>
       )}
+
+      {/* Rodapé */}
+      <Footer />
     </div>
   );
 };

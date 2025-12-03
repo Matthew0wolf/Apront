@@ -5,7 +5,7 @@ Sprint 7 - Notificações em tempo real e por email
 
 from flask import Blueprint, jsonify, request, g
 from auth_utils import jwt_required
-from models import db, Notification, NotificationPreferences, SystemEvent, User
+from models import db, Notification, NotificationPreferences, SystemEvent, User, Company
 from datetime import datetime, timedelta
 from email_utils import send_email
 import json
@@ -314,17 +314,12 @@ def create_event():
 @notifications_bp.route('/events', methods=['GET'])
 @jwt_required()
 def get_events():
-    """Lista eventos do sistema (auditoria)"""
+    """Lista eventos do sistema (auditoria) - Filtrado por empresa (SaaS)"""
     try:
         current_user = g.current_user
         
-        # Apenas admin pode ver todos os eventos
-        if current_user.role.value != 'admin':
-            # Usuários normais veem apenas seus próprios eventos
-            query = SystemEvent.query.filter_by(user_id=current_user.id)
-        else:
-            # Admin vê eventos de toda a empresa
-            query = SystemEvent.query.filter_by(company_id=current_user.company_id)
+        # CRÍTICO: SaaS - Todos os usuários veem apenas eventos da própria empresa
+        query = SystemEvent.query.filter_by(company_id=current_user.company_id)
         
         limit = request.args.get('limit', 100, type=int)
         event_type = request.args.get('event_type')
@@ -335,12 +330,19 @@ def get_events():
         events = query.order_by(SystemEvent.created_at.desc()).limit(limit).all()
         
         result = []
+        # Buscar nome da empresa uma vez para todos os eventos
+        company = Company.query.get(current_user.company_id) if current_user.company_id else None
+        company_name = company.name if company else 'Sistema'
+        
         for e in events:
             result.append({
                 'id': e.id,
                 'event_type': e.event_type,
                 'user_id': e.user_id,
                 'user_name': e.user.name if e.user else 'Sistema',
+                'user_role': e.user.role.value if e.user and e.user.role else None,
+                'user_avatar': e.user.avatar if e.user and e.user.avatar else None,
+                'company_name': company_name,
                 'resource_type': e.resource_type,
                 'resource_id': e.resource_id,
                 'metadata': json.loads(e.metadata_json) if e.metadata_json else {},
