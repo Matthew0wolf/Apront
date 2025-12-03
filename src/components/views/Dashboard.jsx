@@ -334,9 +334,13 @@ const Dashboard = () => {
             {/* Imagem completa do banner do Figma */}
             <div className="relative w-full flex justify-center">
               <img 
-                src="http://localhost:3845/assets/f5ed6bcfdae3f83e65d47a945ddbdb89bb80b407.png"
+                src="/banner-version-1.0.png"
                 alt="Apront Versão 1.0 Lançada - Banner"
                 className="w-full max-w-full h-auto object-contain"
+                onError={(e) => {
+                  // Se a imagem não existir, oculta o banner silenciosamente
+                  e.target.style.display = 'none';
+                }}
               />
               
               {/* Área clicável transparente sobre o botão fake da imagem */}
@@ -570,40 +574,6 @@ const Dashboard = () => {
           </div>
         )}
       </section>
-
-      {/* Mensagem de Boas-Vindas (somente para novos usuários) */}
-      {rundowns.length === 0 && (
-        <section className="container mx-auto px-3 sm:px-6 pb-8 sm:pb-12">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8 }}
-            className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl sm:rounded-2xl p-6 sm:p-8 text-white text-center"
-          >
-            <h2 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">
-              Bem-vindo ao Apront, {user?.name || 'Usuário'}! 🎉
-            </h2>
-            <p className="text-base sm:text-lg mb-4 sm:mb-6 opacity-90">
-              Você está pronto para criar seu primeiro projeto de transmissão profissional.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
-              <Button
-                onClick={() => navigate('/projects')}
-                className="bg-white hover:bg-gray-100 text-indigo-600 font-semibold px-6 py-4 sm:py-6 h-auto w-full sm:w-auto"
-              >
-                Criar Meu Primeiro Projeto
-              </Button>
-              <Button
-                onClick={() => navigate('/templates')}
-                variant="outline"
-                className="border-white text-white hover:bg-white/10 px-6 py-4 sm:py-6 h-auto w-full sm:w-auto"
-              >
-                Explorar Templates
-              </Button>
-            </div>
-          </motion.div>
-        </section>
-      )}
 
       {/* Rodapé */}
       <Footer />
