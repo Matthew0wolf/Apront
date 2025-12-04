@@ -298,56 +298,112 @@ def update_rundown(rundown_id):
     if 'items' in data:
         items_data = data['items']
         
-        # Remove todas as pastas e itens existentes
-        # IMPORTANTE: Deletar items primeiro para evitar violação de foreign key
-        existing_folders = Folder.query.filter_by(rundown_id=rundown_id).all()
-        for folder in existing_folders:
-            # Deletar items da pasta primeiro
-            Item.query.filter_by(folder_id=folder.id).delete()
-            # Depois deletar a pasta
-            db.session.delete(folder)
-        db.session.flush()  # Garantir que as deleções sejam processadas
-        
-        # Cria novas pastas e itens
-        for folder_index, folder_data in enumerate(items_data):
-            # Ignorar se não for uma pasta válida
-            if not folder_data or folder_data.get('type') != 'folder':
-                continue
-                
-            new_folder = Folder(
-                title=folder_data.get('title', f'Pasta {folder_index + 1}'),
-                ordem=folder_index + 1,
-                rundown_id=rundown_id
-            )
-            db.session.add(new_folder)
-            db.session.flush()  # Para obter o ID da pasta
+        try:
             
-            # Adiciona itens da pasta
-            children = folder_data.get('children', [])
-            for item_index, item_data in enumerate(children):
-                # Ignorar se não for um item válido
-                if not item_data or item_data.get('type') == 'folder':
+            # Validar que items_data é uma lista
+            if not isinstance(items_data, list):
+                print(f"❌ [UPDATE RUNDOWN] items_data não é uma lista: {type(items_data)}")
+                return jsonify({'error': 'Items deve ser uma lista'}), 400
+            
+            # Remove todas as pastas e itens existentes
+            # IMPORTANTE: Deletar items primeiro para evitar violação de foreign key
+            existing_folders = Folder.query.filter_by(rundown_id=rundown_id).all()
+            for folder in existing_folders:
+                # Deletar items da pasta primeiro
+                Item.query.filter_by(folder_id=folder.id).delete()
+                # Depois deletar a pasta
+                db.session.delete(folder)
+            db.session.flush()  # Garantir que as deleções sejam processadas
+            
+            # Cria novas pastas e itens
+            for folder_index, folder_data in enumerate(items_data):
+                # Ignorar se não for uma pasta válida
+                if not folder_data or not isinstance(folder_data, dict):
+                    print(f"⚠️ [UPDATE RUNDOWN] Pasta {folder_index} inválida ou não é dict: {type(folder_data)}")
                     continue
                     
-                new_item = Item(
-                    title=item_data.get('title', f'Evento {item_index + 1}'),
-                    duration=int(item_data.get('duration', 60) or 60),
-                    description=item_data.get('description', ''),
-                    type=item_data.get('type', 'generic'),
-                    status=item_data.get('status', 'pending'),
-                    icon_type=item_data.get('iconType', 'lucide'),
-                    icon_data=item_data.get('iconData', 'HelpCircle'),
-                    color=item_data.get('color', '#808080'),
-                    urgency=item_data.get('urgency', 'normal'),
-                    reminder=item_data.get('reminder', ''),
-                    ordem=item_index + 1,
-                    folder_id=new_folder.id,
-                    script=item_data.get('script'),
-                    talking_points=item_data.get('talking_points'),
-                    pronunciation_guide=item_data.get('pronunciation_guide'),
-                    presenter_notes=item_data.get('presenter_notes')
+                if folder_data.get('type') != 'folder':
+                    print(f"⚠️ [UPDATE RUNDOWN] Pasta {folder_index} não tem type='folder': {folder_data.get('type')}")
+                    continue
+                
+                new_folder = Folder(
+                    title=folder_data.get('title', f'Pasta {folder_index + 1}'),
+                    ordem=folder_index + 1,
+                    rundown_id=rundown_id
                 )
-                db.session.add(new_item)
+                db.session.add(new_folder)
+                db.session.flush()  # Para obter o ID da pasta
+                
+                # Adiciona itens da pasta
+                children = folder_data.get('children', [])
+                if not isinstance(children, list):
+                    print(f"⚠️ [UPDATE RUNDOWN] Children não é uma lista na pasta {folder_index}")
+                    children = []
+                    
+                for item_index, item_data in enumerate(children):
+                    # Ignorar se não for um item válido
+                    if not item_data or not isinstance(item_data, dict):
+                        print(f"⚠️ [UPDATE RUNDOWN] Item {item_index} inválido ou não é dict na pasta {folder_index}")
+                        continue
+                        
+                    if item_data.get('type') == 'folder':
+                        continue
+                        
+                    # Converter talking_points para JSON string se necessário
+                    talking_points_raw = item_data.get('talking_points')
+                    talking_points_str = None
+                    if talking_points_raw:
+                        try:
+                            if isinstance(talking_points_raw, str):
+                                # Se já é string, verifica se é JSON válido
+                                try:
+                                    json.loads(talking_points_raw)  # Valida JSON
+                                    talking_points_str = talking_points_raw
+                                except (json.JSONDecodeError, TypeError):
+                                    # Se não é JSON válido, tenta converter
+                                    talking_points_str = json.dumps(talking_points_raw)
+                            elif isinstance(talking_points_raw, (list, dict)):
+                                talking_points_str = json.dumps(talking_points_raw)
+                            else:
+                                talking_points_str = json.dumps(talking_points_raw)
+                        except Exception as e:
+                            print(f"⚠️ [UPDATE RUNDOWN] Erro ao converter talking_points: {e}")
+                            talking_points_str = None
+                    
+                    # Garantir que todos os campos sejam tipos básicos (não dict/list aninhados)
+                    try:
+                        new_item = Item(
+                            title=str(item_data.get('title', f'Evento {item_index + 1}'))[:120] if item_data.get('title') else f'Evento {item_index + 1}',
+                            duration=int(item_data.get('duration', 60) or 60),
+                            description=str(item_data.get('description', '')) if item_data.get('description') else '',
+                            type=str(item_data.get('type', 'generic'))[:30] if item_data.get('type') else 'generic',
+                            status=str(item_data.get('status', 'pending'))[:30] if item_data.get('status') else 'pending',
+                            icon_type=str(item_data.get('iconType', 'lucide'))[:30] if item_data.get('iconType') else 'lucide',
+                            icon_data=str(item_data.get('iconData', 'HelpCircle'))[:60] if item_data.get('iconData') else 'HelpCircle',
+                            color=str(item_data.get('color', '#808080'))[:20] if item_data.get('color') else '#808080',
+                            urgency=str(item_data.get('urgency', 'normal'))[:20] if item_data.get('urgency') else 'normal',
+                            reminder=str(item_data.get('reminder', ''))[:120] if item_data.get('reminder') else '',
+                            ordem=item_index + 1,
+                            folder_id=new_folder.id,
+                            script=str(item_data.get('script')) if item_data.get('script') else None,
+                            talking_points=talking_points_str,
+                            pronunciation_guide=str(item_data.get('pronunciation_guide')) if item_data.get('pronunciation_guide') else None,
+                            presenter_notes=str(item_data.get('presenter_notes')) if item_data.get('presenter_notes') else None
+                        )
+                        db.session.add(new_item)
+                    except Exception as e:
+                        print(f"❌ [UPDATE RUNDOWN] Erro ao criar item {item_index} na pasta {folder_index}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Continua com o próximo item ao invés de falhar tudo
+                        continue
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"❌ [UPDATE RUNDOWN] Erro ao processar items: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Erro ao processar items: {str(e)[:200]}'}), 500
         
         # CRÍTICO: Após salvar, reconstruir a estrutura com IDs reais para retornar ao frontend
         # Isso permite que o frontend atualize os IDs temporários com os IDs reais do banco
@@ -597,6 +653,173 @@ def update_rundown_status(rundown_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Erro ao atualizar status: {str(e)}'}), 500
+
+# Buscar estado atual do timer (calcula tempo decorrido baseado no timestamp)
+@rundown_bp.route('/<int:rundown_id>/timer-state', methods=['GET'])
+@jwt_required()
+def get_timer_state(rundown_id):
+    """Retorna o estado atual do timer calculando o tempo decorrido no servidor"""
+    user = g.current_user
+    
+    # Verificar se rundown pertence à mesma empresa
+    rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
+    if not rundown:
+        return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
+    
+    # Calcular tempo decorrido baseado no timestamp de início
+    time_elapsed = 0
+    is_running = False
+    
+    # Verifica se os campos existem (pode não existir se a migração ainda não foi feita)
+    try:
+        is_running = getattr(rundown, 'is_timer_running', False) or False
+        timer_started_at = getattr(rundown, 'timer_started_at', None)
+        timer_elapsed_base = getattr(rundown, 'timer_elapsed_base', 0) or 0
+        
+        if is_running and timer_started_at:
+            try:
+                # Tenta usar fromisoformat (Python 3.7+), se falhar usa parser
+                try:
+                    started_at = datetime.datetime.fromisoformat(timer_started_at.replace('Z', '+00:00'))
+                except:
+                    from dateutil import parser
+                    started_at = parser.parse(timer_started_at)
+                
+                now = datetime.datetime.utcnow()
+                elapsed_seconds = int((now - started_at.replace(tzinfo=None)).total_seconds())
+                time_elapsed = timer_elapsed_base + elapsed_seconds
+            except Exception as e:
+                print(f"Erro ao calcular tempo decorrido: {e}")
+                time_elapsed = timer_elapsed_base
+        else:
+            time_elapsed = timer_elapsed_base
+    except AttributeError:
+        # Campos não existem ainda no banco, usa status como fallback
+        is_running = rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']
+        time_elapsed = 0
+    
+    # Parse current_item_index
+    current_item_index = {'folderIndex': 0, 'itemIndex': 0}
+    try:
+        current_item_index_json = getattr(rundown, 'current_item_index_json', None)
+        if current_item_index_json:
+            try:
+                current_item_index = json.loads(current_item_index_json)
+            except:
+                pass
+    except AttributeError:
+        pass
+    
+    return jsonify({
+        'isRunning': is_running,
+        'timeElapsed': time_elapsed,
+        'currentItemIndex': current_item_index,
+        'timerStartedAt': getattr(rundown, 'timer_started_at', None),
+        'timerElapsedBase': getattr(rundown, 'timer_elapsed_base', 0) or 0
+    })
+
+# Atualizar estado do timer (iniciar, pausar, atualizar)
+@rundown_bp.route('/<int:rundown_id>/timer-state', methods=['PATCH'])
+@jwt_required()
+def update_timer_state(rundown_id):
+    """Atualiza o estado do timer no servidor"""
+    user = g.current_user
+    
+    # Verificar se rundown pertence à mesma empresa
+    rundown = Rundown.query.filter_by(id=rundown_id, company_id=user.company_id).first()
+    if not rundown:
+        return jsonify({'error': 'Rundown não encontrado ou sem permissão'}), 404
+    
+    try:
+        data = request.get_json() or {}
+        is_running = data.get('isRunning')
+        time_elapsed = data.get('timeElapsed')
+        current_item_index = data.get('currentItemIndex')
+        
+        # Atualizar estado do timer (verifica se os campos existem no modelo)
+        try:
+            # Atualizar estado do timer
+            if is_running is not None:
+                setattr(rundown, 'is_timer_running', is_running)
+                
+                if is_running:
+                    # Timer iniciado: salva timestamp atual e tempo base
+                    setattr(rundown, 'timer_started_at', datetime.datetime.utcnow().isoformat())
+                    base_time = time_elapsed if time_elapsed is not None else (getattr(rundown, 'timer_elapsed_base', 0) or 0)
+                    setattr(rundown, 'timer_elapsed_base', base_time)
+                    # Atualiza status para "Ao Vivo"
+                    if rundown.status != 'Ao Vivo':
+                        rundown.status = 'Ao Vivo'
+                else:
+                    # Timer pausado: salva tempo base atual
+                    if time_elapsed is not None:
+                        setattr(rundown, 'timer_elapsed_base', time_elapsed)
+                    setattr(rundown, 'timer_started_at', None)
+                    # CRÍTICO: Atualiza status para "Pausado" quando pausa
+                    if rundown.status == 'Ao Vivo':
+                        rundown.status = 'Pausado'
+            
+            # Atualizar tempo decorrido se fornecido (sem mudar running state)
+            if time_elapsed is not None and is_running is None:
+                current_is_running = getattr(rundown, 'is_timer_running', False)
+                current_started_at = getattr(rundown, 'timer_started_at', None)
+                
+                if current_is_running and current_started_at:
+                    # Ajusta o tempo base para refletir o novo tempo
+                    try:
+                        try:
+                            started_at = datetime.datetime.fromisoformat(current_started_at.replace('Z', '+00:00'))
+                        except:
+                            from dateutil import parser
+                            started_at = parser.parse(current_started_at)
+                        
+                        now = datetime.datetime.utcnow()
+                        elapsed_since_start = int((now - started_at.replace(tzinfo=None)).total_seconds())
+                        setattr(rundown, 'timer_elapsed_base', time_elapsed - elapsed_since_start)
+                    except:
+                        setattr(rundown, 'timer_elapsed_base', time_elapsed)
+                else:
+                    setattr(rundown, 'timer_elapsed_base', time_elapsed)
+            
+            # Atualizar item atual
+            if current_item_index:
+                setattr(rundown, 'current_item_index_json', json.dumps(current_item_index))
+        except AttributeError as e:
+            # Campos não existem no banco ainda - apenas atualiza status como fallback
+            print(f"⚠️ Campos de timer não existem no banco ainda: {e}")
+            if is_running is not None:
+                if is_running:
+                    rundown.status = 'Ao Vivo'
+                else:
+                    rundown.status = 'Parado'
+        
+        db.session.commit()
+        
+        # Sincronizar via WebSocket
+        try:
+            changes = {
+                'isRunning': rundown.is_timer_running,
+                'timeElapsed': time_elapsed if time_elapsed is not None else (rundown.timer_elapsed_base or 0),
+                'currentItemIndex': current_item_index if current_item_index else json.loads(rundown.current_item_index_json) if rundown.current_item_index_json else {'folderIndex': 0, 'itemIndex': 0},
+                'status': rundown.status  # CRÍTICO: Incluir status para sincronização
+            }
+            broadcast_rundown_update(rundown_id, changes)
+            print(f"✅ Timer state sincronizado via WebSocket: isRunning={rundown.is_timer_running}, status={rundown.status}")
+        except Exception as ws_error:
+            print(f"AVISO: Erro ao enviar WebSocket: {ws_error}")
+        
+        return jsonify({
+            'message': 'Estado do timer atualizado com sucesso',
+            'isRunning': rundown.is_timer_running,
+            'timeElapsed': time_elapsed if time_elapsed is not None else (rundown.timer_elapsed_base or 0),
+            'currentItemIndex': current_item_index if current_item_index else (json.loads(rundown.current_item_index_json) if rundown.current_item_index_json else {'folderIndex': 0, 'itemIndex': 0})
+        })
+    except Exception as e:
+        db.session.rollback()
+        print(f"ERRO ao atualizar estado do timer: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Erro ao atualizar estado do timer: {str(e)}'}), 500
 
 # Deletar projeto
 @rundown_bp.route('/<int:rundown_id>', methods=['DELETE'])

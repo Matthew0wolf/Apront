@@ -18,14 +18,49 @@ def get_item_script(item_id):
     """Obtém o script completo de um item"""
     try:
         current_user = g.current_user
-        item = Item.query.get_or_404(item_id)
+        
+        if not current_user:
+            print(f"❌ GET script: Usuário não autenticado para item {item_id}")
+            return jsonify({'error': 'Usuário não autenticado'}), 401
+        
+        if not current_user.company_id:
+            print(f"❌ GET script: Usuário {current_user.id} sem empresa associada")
+            return jsonify({'error': 'Usuário sem empresa associada'}), 403
+        
+        print(f"🔍 GET script: Buscando item {item_id} para usuário {current_user.id} (empresa {current_user.company_id})")
+        
+        item = Item.query.get(item_id)
+        if not item:
+            print(f"❌ GET script: Item {item_id} não encontrado")
+            return jsonify({'error': 'Item não encontrado'}), 404
+        
+        print(f"✅ GET script: Item encontrado - folder_id={item.folder_id}")
         
         # CRÍTICO: Verificar se o item pertence a um rundown da mesma empresa
-        from models import Rundown
-        rundown = Rundown.query.get(item.folder.rundown_id) if item.folder else None
+        # Buscar folder primeiro, depois rundown
+        folder = None
+        if item.folder_id:
+            folder = Folder.query.get(item.folder_id)
+            print(f"✅ GET script: Folder encontrado - folder_id={folder.id if folder else None}, rundown_id={folder.rundown_id if folder else None}")
         
-        if not rundown or rundown.company_id != current_user.company_id:
+        if not folder:
+            print(f"❌ GET script: Pasta não encontrada para item {item_id}")
+            return jsonify({'error': 'Pasta não encontrada para este item'}), 404
+        
+        rundown = None
+        if folder.rundown_id:
+            rundown = Rundown.query.get(folder.rundown_id)
+            print(f"✅ GET script: Rundown encontrado - rundown_id={rundown.id if rundown else None}, company_id={rundown.company_id if rundown else None}")
+        
+        if not rundown:
+            print(f"❌ GET script: Rundown não encontrado para pasta {folder.id}")
+            return jsonify({'error': 'Rundown não encontrado'}), 404
+        
+        if rundown.company_id != current_user.company_id:
+            print(f"❌ GET script: Permissão negada - rundown.company_id={rundown.company_id}, user.company_id={current_user.company_id}")
             return jsonify({'error': 'Item não encontrado ou sem permissão'}), 404
+        
+        print(f"✅ GET script: Permissão concedida para item {item_id}")
         
         # Montar resposta com todos os campos de script
         try:
@@ -46,10 +81,16 @@ def get_item_script(item_id):
         return jsonify(script_data), 200
         
     except Exception as e:
-        print(f"Erro ao obter script do item {item_id}: {e}")
+        print(f"❌ Erro ao obter script do item {item_id}: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_msg = str(e)
+        # Não expor detalhes técnicos ao cliente em produção
+        response = jsonify({'error': f'Erro ao obter script: {error_msg[:100]}'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        return response, 500
 
 
 @scripts_bp.route('/items/<int:item_id>/script', methods=['PUT'])
@@ -59,12 +100,32 @@ def update_item_script(item_id):
     try:
         current_user = g.current_user
         
-        if not current_user or not current_user.company_id:
-            return jsonify({'error': 'Usuário sem empresa associada'}), 403
+        if not current_user:
+            print(f"❌ PUT script: Usuário não autenticado para item {item_id}")
+            response = jsonify({'error': 'Usuário não autenticado'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 401
+        
+        if not current_user.company_id:
+            print(f"❌ PUT script: Usuário {current_user.id} sem empresa associada")
+            response = jsonify({'error': 'Usuário sem empresa associada'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 403
         
         data = request.get_json()
+        if not data:
+            response = jsonify({'error': 'Dados da requisição ausentes'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 400
         
-        item = Item.query.get_or_404(item_id)
+        print(f"🔍 PUT script: Atualizando script do item {item_id} para usuário {current_user.id} (empresa {current_user.company_id})")
+        
+        item = Item.query.get(item_id)
+        if not item:
+            print(f"❌ PUT script: Item {item_id} não encontrado")
+            response = jsonify({'error': 'Item não encontrado. Certifique-se de que o projeto foi salvo.'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 404
         
         # CRÍTICO: Verificar se o item pertence à mesma empresa do usuário
         # Buscar o folder do item e depois o rundown
@@ -119,6 +180,8 @@ def update_item_script(item_id):
         
         db.session.commit()
         
+        print(f"✅ PUT script: Script atualizado com sucesso para item {item_id}")
+        
         # Retornar dados atualizados
         script_data = {
             'id': item.id,
@@ -129,6 +192,23 @@ def update_item_script(item_id):
             'presenter_notes': item.presenter_notes
         }
         
+        # CRÍTICO: Notificar outros clientes via WebSocket sobre a atualização do script
+        try:
+            from websocket_server import broadcast_rundown_update
+            # Buscar o rundown novamente para garantir que temos os dados atualizados
+            rundown = Rundown.query.get(folder.rundown_id)
+            if rundown:
+                # Dispara uma atualização do rundown via WebSocket para notificar o apresentador
+                broadcast_rundown_update(rundown.id, {
+                    'item_script_updated': {
+                        'item_id': item.id,
+                        'folder_id': folder.id
+                    }
+                })
+                print(f"📡 PUT script: Notificação WebSocket enviada para rundown {rundown.id}")
+        except Exception as ws_error:
+            print(f"⚠️ PUT script: Erro ao enviar notificação WebSocket (não crítico): {ws_error}")
+        
         return jsonify({
             'success': True,
             'message': 'Script atualizado com sucesso',
@@ -137,7 +217,16 @@ def update_item_script(item_id):
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Erro ao atualizar script do item {item_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        error_msg = str(e)
+        # Não expor detalhes técnicos ao cliente em produção
+        response = jsonify({'error': f'Erro ao salvar script: {error_msg[:100]}'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+        return response, 500
 
 
 @scripts_bp.route('/rundowns/<int:rundown_id>/scripts', methods=['GET'])

@@ -28,10 +28,9 @@ export const useApi = () => {
 
     // Se 401, tenta renovar token independentemente da mensagem
     if (response.status === 401) {
-      try {
-        const errorText = await response.text().catch(() => '');
-        console.warn('⚠️ 401 recebido. Tentando refresh...', errorText);
-      } catch {}
+      // Clona a response para poder ler o erro sem consumir o body
+      const errorResponse = response.clone();
+      
       const refreshed = await refreshToken();
       if (refreshed) {
         const newToken = localStorage.getItem('token');
@@ -42,7 +41,25 @@ export const useApi = () => {
             'Authorization': `Bearer ${newToken}`,
           },
         };
+        // Tenta novamente com o novo token
         response = await fetch(finalUrl, newOptions);
+        
+        // Se a segunda tentativa foi bem-sucedida, não logar o erro 401 inicial
+        if (response.ok) {
+          console.log('✅ Token renovado automaticamente e requisição bem-sucedida');
+        } else {
+          // Se ainda falhar, logar o erro
+          try {
+            const errorText = await errorResponse.text().catch(() => '');
+            console.warn('⚠️ 401 persistiu após refresh:', errorText);
+          } catch {}
+        }
+      } else {
+        // Se o refresh falhou, logar o erro
+        try {
+          const errorText = await errorResponse.text().catch(() => '');
+          console.warn('⚠️ 401 recebido e refresh falhou:', errorText);
+        } catch {}
       }
     }
 

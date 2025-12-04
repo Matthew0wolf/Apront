@@ -128,19 +128,48 @@ def delete_notification(notification_id):
     """Remove uma notificação"""
     try:
         current_user = g.current_user
-        notification = Notification.query.get_or_404(notification_id)
         
+        if not current_user:
+            response = jsonify({'error': 'Usuário não autenticado'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 401
+        
+        print(f"🔍 DELETE notification: Tentando deletar notificação {notification_id} para usuário {current_user.id}")
+        
+        # Buscar notificação sem usar get_or_404 para ter melhor controle do erro
+        notification = Notification.query.get(notification_id)
+        
+        if not notification:
+            print(f"❌ DELETE notification: Notificação {notification_id} não encontrada")
+            response = jsonify({'error': 'Notificação não encontrada'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 404
+        
+        # Verificar se a notificação pertence ao usuário
         if notification.user_id != current_user.id:
-            return jsonify({'error': 'Sem permissão'}), 403
+            print(f"❌ DELETE notification: Permissão negada - notificação pertence ao usuário {notification.user_id}, tentando deletar como {current_user.id}")
+            response = jsonify({'error': 'Sem permissão para deletar esta notificação'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 403
         
+        # Deletar notificação
         db.session.delete(notification)
         db.session.commit()
         
-        return jsonify({'success': True}), 200
+        print(f"✅ DELETE notification: Notificação {notification_id} deletada com sucesso")
+        
+        response = jsonify({'success': True})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 200
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ DELETE notification: Erro ao deletar notificação {notification_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        response = jsonify({'error': f'Erro ao deletar notificação: {str(e)}'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
 
 @notifications_bp.route('/preferences', methods=['GET'])

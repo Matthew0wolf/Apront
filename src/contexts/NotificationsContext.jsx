@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState, useEf
 import { useToast } from '@/components/ui/use-toast';
 import { API_BASE_URL } from '@/config/api';
 import { websocketManager } from '../lib/websocket';
+import { useApi } from '@/hooks/useApi';
 
 const NotificationsContext = createContext();
 
@@ -11,6 +12,7 @@ export const NotificationsProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const { toast } = useToast();
+  const { apiCall } = useApi();
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -135,10 +137,9 @@ export const NotificationsProvider = ({ children }) => {
       // Se é notificação do backend, deletar permanentemente no backend
       if (!id.toString().startsWith('local-')) {
         try {
-          const response = await fetch(`${API_BASE_URL}/api/notifications/${id}`, {
+          const response = await apiCall(`/api/notifications/${id}`, {
             method: 'DELETE',
             headers: {
-              'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           });
@@ -155,7 +156,7 @@ export const NotificationsProvider = ({ children }) => {
             console.error('Erro ao deletar notificação no backend:', response.status, responseData);
             toast({
               title: "Erro",
-              description: "Não foi possível remover a notificação. Tente novamente.",
+              description: responseData.error || "Não foi possível remover a notificação. Tente novamente.",
               variant: "destructive"
             });
           }
@@ -178,7 +179,7 @@ export const NotificationsProvider = ({ children }) => {
     } catch (error) {
       console.error('Erro ao remover notificação:', error);
     }
-  }, [notifications, toast]);
+  }, [notifications, toast, apiCall]);
 
   const clearAll = useCallback(() => {
     setNotifications([]);

@@ -4,6 +4,7 @@ import { useApi } from '@/hooks/useApi';
 import { useToast } from '@/components/ui/use-toast';
 import { useTimer } from '@/contexts/TimerContext.jsx';
 import { useSync } from '@/contexts/SyncContext.jsx';
+import { API_BASE_URL } from '@/config/api';
 
 const RundownContext = createContext();
 
@@ -81,6 +82,7 @@ export const RundownProvider = ({ children }) => {
   const rundownRef = useRef(activeRundown);
   const indexRef = useRef(currentItemIndex);
   const pendingUpdatesRef = useRef(new Map()); // Armazena atualizações pendentes por rundownId
+  const lastPauseTimeRef = useRef(null); // Armazena timestamp da última pausa para evitar sobrescrita
 
   useEffect(() => {
     rundownRef.current = activeRundown;
@@ -120,20 +122,47 @@ export const RundownProvider = ({ children }) => {
       const isActiveRundown = String(activeRundown?.id) === rundownIdStr;
       const rundownExists = rundowns.some(r => String(r.id) === rundownIdStr);
       
+      // CRÍTICO: Verificar se a URL atual corresponde ao rundownId (para sincronização durante carregamento)
+      // Isso permite que o apresentador receba atualizações mesmo antes do rundown estar totalmente carregado
+      let urlMatchesRundown = false;
+      if (typeof window !== 'undefined') {
+        const currentPath = window.location.pathname;
+        urlMatchesRundown = currentPath.includes(`/project/${rundownIdStr}/`) || 
+                           currentPath.includes(`/project/${rundownIdStr}`);
+      }
+      
       // CRÍTICO: Sempre aplicar mudanças de isRunning e timeElapsed se for o rundown ativo
       // OU se o rundown existe na lista e não há rundown ativo (está carregando)
+      // OU se a URL corresponde ao rundownId (apresentador/operador na página do projeto)
       // Isso garante que o apresentador receba o estado correto ao entrar após o evento estar ao vivo
+      // CRÍTICO: Sempre aplicar mudanças de isRunning e timeElapsed quando recebidas via WebSocket
+      // Isso garante que quando o operador pausa, o apresentador também pausa
       if (changes.isRunning !== undefined) {
-        const shouldApplyTimerState = isActiveRundown || 
-                                      (rundownExists && !activeRundown) ||
-                                      (rundownExists && changes.isRunning); // Se timer está rodando e rundown existe, sempre aplicar
+        // CRÍTICO: Sempre aplicar mudanças de isRunning se for o rundown ativo, existe na lista, ou a URL corresponde
+        // Não importa se isRunning é true ou false - ambos devem ser sincronizados
+        const shouldApplyTimerState = isActiveRundown || rundownExists || urlMatchesRundown;
         
         if (shouldApplyTimerState) {
-          console.log('✅ RundownContext: Atualizando isRunning via WebSocket:', changes.isRunning);
-          setIsTimerRunning(changes.isRunning);
+          console.log('✅ RundownContext: Atualizando isRunning via WebSocket:', changes.isRunning, {
+            wasRunning: isTimerRunning,
+            willBeRunning: changes.isRunning,
+            isActiveRundown,
+            rundownExists,
+            urlMatchesRundown,
+            rundownId: rundownIdStr,
+            currentPath: typeof window !== 'undefined' ? window.location.pathname : 'N/A'
+          });
           
-          // CRÍTICO: Se o timer está rodando, também atualiza o tempo decorrido
-          if (changes.isRunning && changes.timeElapsed !== undefined) {
+          // CRÍTICO: Atualiza imediatamente e registra timestamp se for pausar
+          setIsTimerRunning(changes.isRunning);
+          if (!changes.isRunning) {
+            lastPauseTimeRef.current = Date.now();
+            console.log('⏸️ Timer pausado, registro timestamp:', lastPauseTimeRef.current);
+          }
+          
+          // CRÍTICO: Sempre atualizar o tempo decorrido quando fornecido, independentemente de isRunning
+          // Isso garante que o tempo correto seja mostrado mesmo quando pausado
+          if (changes.timeElapsed !== undefined) {
             console.log('✅ RundownContext: Atualizando timeElapsed via WebSocket:', changes.timeElapsed);
             setTimeElapsed(changes.timeElapsed);
           }
@@ -156,6 +185,18 @@ export const RundownProvider = ({ children }) => {
         if (isActiveRundown) {
           setTimeElapsed(changes.timeElapsed);
         }
+      }
+      
+      // CRÍTICO: Atualizar status do rundown se fornecido
+      if (changes.status && isActiveRundown && activeRundown) {
+        console.log('✅ RundownContext: Atualizando status do rundown:', changes.status);
+        setActiveRundown(prev => ({ ...prev, status: changes.status }));
+        // Atualizar também na lista de rundowns
+        setRundowns(prev => prev.map(r => 
+          String(r.id) === rundownIdStr 
+            ? { ...r, status: changes.status }
+            : r
+        ));
       }
       
       // Aplica outras mudanças apenas se for o rundown ativo
@@ -267,9 +308,14 @@ export const RundownProvider = ({ children }) => {
     setTimeElapsed(newElapsedTime);
     setCurrentItemIndex({ folderIndex, itemIndex });
     
-    // Sincroniza a mudança de item com outros clientes
+    // CRÍTICO: Sincroniza a mudança de item com tempo atualizado com outros clientes
+    if (activeRundown?.id) {
+      syncTimerState(isTimerRunning, newElapsedTime, { folderIndex, itemIndex }, String(activeRundown.id));
+    }
+    
+    // Também sincroniza apenas a mudança de item
     syncCurrentItemChange({ folderIndex, itemIndex });
-  }, [calculateElapsedTimeForIndex, setTimeElapsed, syncCurrentItemChange]);
+  }, [calculateElapsedTimeForIndex, setTimeElapsed, syncCurrentItemChange, activeRundown?.id, isTimerRunning, syncTimerState]);
 
   const handleNextItem = useCallback(() => {
     const rundown = rundownRef.current;
@@ -349,14 +395,65 @@ export const RundownProvider = ({ children }) => {
         setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
       }
       
-      // CRÍTICO: NÃO carregar isRunning do localStorage ao entrar
-      // O estado do timer deve vir APENAS do operador via WebSocket
-      // Isso evita que apresentadores vejam "standby" quando o operador já está "ao vivo"
-      // O estado será atualizado via WebSocket quando o operador enviar
-      setIsTimerRunning(false); // Inicia em standby, será atualizado via WebSocket
-      console.log('⚠️ loadRundownState: isRunning iniciado como false (será atualizado via WebSocket)');
-      
-      setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
+      // CRÍTICO: Busca o estado real do timer do backend
+      // Isso garante que todos vejam o mesmo estado, mesmo se o operador sair
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          const timerStateResponse = await fetch(`${API_BASE_URL}/api/rundowns/${rundownIdStr}/timer-state`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (timerStateResponse.ok) {
+            const timerState = await timerStateResponse.json();
+            console.log('✅ loadRundownState: Estado do timer obtido do backend:', timerState);
+            
+            // CRÍTICO: Verificar se não há uma pausa recente (últimos 10 segundos) antes de aplicar estado do backend
+            // Isso evita que o estado pausado seja sobrescrito por um estado desatualizado do backend
+            const recentPause = lastPauseTimeRef.current && (Date.now() - lastPauseTimeRef.current) < 10000;
+            if (recentPause) {
+              // Se houve uma pausa recente, sempre manter o estado local (pausado)
+              console.log('⏸️ Pausa recente detectada, mantendo estado pausado local (evita sobrescrita)');
+              setIsTimerRunning(false);
+            } else {
+              // Aplica o estado real do backend apenas se não houver pausa recente
+              setIsTimerRunning(timerState.isRunning || false);
+            }
+            setTimeElapsed(timerState.timeElapsed || 0);
+            
+            if (timerState.currentItemIndex) {
+              setCurrentItemIndex(timerState.currentItemIndex);
+            }
+            
+            console.log(`✅ loadRundownState: Estado aplicado do backend - isRunning: ${timerState.isRunning}, timeElapsed: ${timerState.timeElapsed}`);
+          } else {
+            // Fallback: usa status do rundown se a rota ainda não existir
+            console.warn('⚠️ loadRundownState: Rota de timer-state não disponível, usando fallback');
+            const rundownStatus = rundownData.status;
+            const statusLower = rundownStatus ? rundownStatus.toLowerCase() : '';
+            const isLive = statusLower === 'ao vivo' || statusLower === 'aovivo' || statusLower === 'live' || statusLower === 'active';
+            setIsTimerRunning(isLive);
+            setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
+          }
+        } catch (error) {
+          console.warn('⚠️ loadRundownState: Erro ao buscar estado do timer do backend, usando fallback:', error);
+          // Fallback: usa status do rundown
+          const rundownStatus = rundownData.status;
+          const statusLower = rundownStatus ? rundownStatus.toLowerCase() : '';
+          const isLive = statusLower === 'ao vivo' || statusLower === 'aovivo' || statusLower === 'live' || statusLower === 'active';
+          setIsTimerRunning(isLive);
+          setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
+        }
+      } else {
+        // Sem token, usa fallback
+        const rundownStatus = rundownData.status;
+        const statusLower = rundownStatus ? rundownStatus.toLowerCase() : '';
+        const isLive = statusLower === 'ao vivo' || statusLower === 'aovivo' || statusLower === 'live' || statusLower === 'active';
+        setIsTimerRunning(isLive);
+        setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
+      }
       
       console.log('✅ loadRundownState: Rundown carregado com sucesso:', { id: rundownData.id, name: rundownData.name });
       
@@ -376,10 +473,9 @@ export const RundownProvider = ({ children }) => {
         pendingUpdatesRef.current.delete(rundownIdStr);
       }
       
-      // CRÍTICO: Após carregar, solicita estado atual do operador
-      // Aguarda um pouco para garantir que o WebSocket está conectado
+      // CRÍTICO: Após carregar, solicita estado atual do operador via WebSocket (para sincronização adicional)
       setTimeout(() => {
-        console.log('📡 loadRundownState: Solicitando estado atual do timer do operador...');
+        console.log('📡 loadRundownState: Solicitando estado atual do timer do operador via WebSocket...');
         window.dispatchEvent(new CustomEvent('requestTimerState', {
           detail: { rundownId: rundownIdStr }
         }));
@@ -655,6 +751,21 @@ export const RundownProvider = ({ children }) => {
       console.error("Failed to save rundowns to localStorage", error);
     }
   }, [rundowns]);
+
+  // CRÍTICO: Atualiza o estado do timer no backend periodicamente enquanto está rodando
+  useEffect(() => {
+    if (!activeRundown || !isTimerRunning || !token) return;
+    
+    // Atualiza o estado no backend a cada 5 segundos
+    const syncInterval = setInterval(() => {
+      if (activeRundown && isTimerRunning) {
+        console.log('💾 Atualizando estado do timer no backend (sincronização periódica)');
+        syncTimerState(isTimerRunning, timeElapsed, currentItemIndex, String(activeRundown.id));
+      }
+    }, 5000); // A cada 5 segundos
+    
+    return () => clearInterval(syncInterval);
+  }, [activeRundown?.id, isTimerRunning, timeElapsed, currentItemIndex, syncTimerState, token]);
 
   useEffect(() => {
     if (activeRundown) {

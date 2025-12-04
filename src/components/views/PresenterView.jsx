@@ -308,41 +308,91 @@ const PresenterView = () => {
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => setIsMounted(true), []);
 
-  // Carregar script do item atual
-  useEffect(() => {
-    const loadScript = async () => {
-      if (!currentItem?.id) {
+  // Função para carregar script do item atual
+  const loadScript = useCallback(async (itemId) => {
+    if (!itemId) {
+      setCurrentScript(null);
+      return;
+    }
+
+    try {
+      // Verifica se o item tem ID temporário (string) ou real (número)
+      const isTemporaryId = isNaN(Number(itemId));
+      
+      if (isTemporaryId) {
+        // Item ainda não foi salvo no backend: não tenta carregar da API
+        console.log('📝 Item temporário, pulando carregamento da API:', itemId);
         setCurrentScript(null);
         return;
       }
-
-      try {
-        // Verifica se o item tem ID temporário (string) ou real (número)
-        const isTemporaryId = isNaN(Number(currentItem.id));
-        
-        if (isTemporaryId) {
-          // Item ainda não foi salvo no backend: não tenta carregar da API
-          console.log('📝 Item temporário, pulando carregamento da API:', currentItem.id);
-          setCurrentScript(null);
-          return;
-        }
-        
-        const response = await apiCall(`/api/items/${currentItem.id}/script`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setCurrentScript(data);
-        } else {
-          setCurrentScript(null);
-        }
-      } catch (error) {
-        console.error('Erro ao carregar script:', error);
+      
+      const response = await apiCall(`/api/items/${itemId}/script`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Script carregado para item:', itemId, data);
+        setCurrentScript(data);
+      } else {
+        console.warn('⚠️ Erro ao carregar script:', response.status);
         setCurrentScript(null);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar script:', error);
+      setCurrentScript(null);
+    }
+  }, [apiCall]);
+
+  // Carregar script do item atual quando o item muda
+  useEffect(() => {
+    if (currentItem?.id) {
+      loadScript(currentItem.id);
+    } else {
+      setCurrentScript(null);
+    }
+  }, [currentItem?.id, loadScript]);
+
+  // Listener para detectar quando o script foi atualizado via sincronização
+  useEffect(() => {
+    const handleRundownSync = (event) => {
+      const { rundownId, changes } = event.detail;
+      
+      // Verifica se há mudanças nos items e se o item atual foi atualizado
+      if (changes?.items && currentItem?.id && rundown?.id && String(rundown.id) === String(rundownId)) {
+        console.log('📡 PresenterView: Detectada atualização de items, verificando script do item atual...', {
+          currentItemId: currentItem.id,
+          changes: changes.items
+        });
+        
+        // Verifica se o item atual está nas mudanças
+        const itemWasUpdated = changes.items.some(folder => 
+          folder.children?.some(item => String(item.id) === String(currentItem.id))
+        );
+        
+        if (itemWasUpdated) {
+          console.log('✅ PresenterView: Item atual foi atualizado, recarregando script...');
+          // Recarrega o script do item atual
+          loadScript(currentItem.id);
+        }
       }
     };
 
-    loadScript();
-  }, [currentItem, apiCall]);
+    // Listener para evento de atualização de script específico
+    const handleScriptUpdated = (event) => {
+      const { itemId } = event.detail;
+      if (itemId && currentItem?.id && String(itemId) === String(currentItem.id)) {
+        console.log('📡 PresenterView: Script atualizado detectado, recarregando...', itemId);
+        loadScript(currentItem.id);
+      }
+    };
+
+    window.addEventListener('rundownSync', handleRundownSync);
+    window.addEventListener('scriptUpdated', handleScriptUpdated);
+
+    return () => {
+      window.removeEventListener('rundownSync', handleRundownSync);
+      window.removeEventListener('scriptUpdated', handleScriptUpdated);
+    };
+  }, [currentItem, rundown, loadScript]);
 
 
   // Auto-scroll do script

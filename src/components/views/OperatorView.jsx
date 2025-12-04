@@ -360,6 +360,10 @@ const OperatorView = () => {
         description: `${rundown?.name || 'Rundown'} está AO VIVO`
       });
     } else {
+      // CRÍTICO: Atualizar status do rundown para "Pausado" quando pausa
+      if (rundown?.id) {
+        updateRundownStatus(rundown.id, 'Pausado');
+      }
       addNotification({
         type: 'info',
         title: '⏸️ Transmissão Pausada',

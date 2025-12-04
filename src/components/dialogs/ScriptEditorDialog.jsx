@@ -121,16 +121,49 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         });
 
         if (response.ok) {
+          const result = await response.json().catch(() => ({}));
+          
           toast({
             title: "✅ Script salvo",
             description: "O script foi atualizado com sucesso!"
           });
+          
+          // Dispara evento para notificar outros clientes (especialmente o apresentador)
+          window.dispatchEvent(new CustomEvent('scriptUpdated', {
+            detail: { itemId: item.id }
+          }));
+          
           if (onSave) {
             onSave(scriptData);
           }
           onClose();
         } else {
-          throw new Error('Erro ao salvar script');
+          const errorData = await response.json().catch(() => ({}));
+          console.error('❌ Erro ao salvar script:', response.status, errorData);
+          
+          // Se for 404, o item pode não ter sido salvo no banco ainda
+          // Nesse caso, salva localmente para que seja incluído quando o rundown for salvo
+          if (response.status === 404) {
+            console.warn('⚠️ Item não encontrado no banco. Salvando localmente...', item.id);
+            // Salva localmente através do callback onSave
+            if (onSave) {
+              onSave(scriptData);
+            }
+            toast({
+              title: "⏳ Script salvo localmente",
+              description: "O script será sincronizado quando o projeto for salvo."
+            });
+            onClose();
+            return;
+          }
+          
+          // Se for 401, pode ser token expirado - o useApi já tenta refresh automaticamente
+          // Mas se ainda assim falhar, mostra mensagem apropriada
+          if (response.status === 401) {
+            throw new Error('Sessão expirada. Por favor, recarregue a página e faça login novamente.');
+          }
+          
+          throw new Error(errorData.error || 'Erro ao salvar script');
         }
       }
     } catch (error) {

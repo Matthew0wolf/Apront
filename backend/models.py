@@ -159,6 +159,13 @@ class Rundown(db.Model):
     company_id = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)  # CRÍTICO: Isolamento por empresa
     folders = db.relationship('Folder', backref='rundown', cascade='all, delete-orphan')
     members = db.relationship('RundownMember', backref='rundown', cascade='all, delete-orphan')
+    
+    # Campos para estado global do timer (armazenado no banco para sincronização)
+    # NOTA: Estes campos são opcionais - se não existirem no banco, o código usará fallback
+    timer_started_at = db.Column(db.String(50), nullable=True)  # Timestamp ISO de quando o timer foi iniciado
+    timer_elapsed_base = db.Column(db.Integer, default=0, nullable=True)  # Tempo base em segundos (quando pausado)
+    is_timer_running = db.Column(db.Boolean, default=False, nullable=True)  # Se o timer está rodando
+    current_item_index_json = db.Column(db.Text, nullable=True)  # JSON: {"folderIndex": 0, "itemIndex": 0}
 
 
 class RundownMember(db.Model):

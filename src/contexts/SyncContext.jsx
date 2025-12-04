@@ -413,12 +413,37 @@ export const SyncProvider = ({ children }) => {
       return;
     }
     
-    console.log('🔄 Sincronizando estado do timer via WebSocket:', { 
+    console.log('🔄 Sincronizando estado do timer (WebSocket + Backend):', { 
       isRunning, 
       timeElapsed, 
       currentItemIndex,
       rundownId: targetRundownId
     });
+    
+    // CRÍTICO: Salva o estado no backend primeiro (persistência global)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/rundowns/${targetRundownId}/timer-state`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          isRunning,
+          timeElapsed,
+          currentItemIndex
+        })
+      });
+      
+      if (response.ok) {
+        console.log('✅ Estado do timer salvo no backend (persistência global)');
+      } else {
+        console.warn('⚠️ Erro ao salvar estado do timer no backend:', response.status);
+      }
+    } catch (error) {
+      console.warn('⚠️ Erro ao salvar estado do timer no backend:', error);
+      // Continua mesmo se falhar - ainda sincroniza via WebSocket
+    }
     
     // Dispara evento imediatamente para o mesmo cliente
     window.dispatchEvent(new CustomEvent('rundownSync', { 
