@@ -1,0 +1,75 @@
+===========================================
+SOLUÇÃO RÁPIDA: Rodar Migração via SQL
+===========================================
+
+O problema é que o Flask não está instalado no ambiente Python.
+A solução mais fácil é usar SQL direto no PostgreSQL.
+
+-------------------------------------------
+MÉTODO 1: SQL Direto (MAIS RÁPIDO)
+-------------------------------------------
+
+1. Conecte no PostgreSQL:
+
+   psql -h localhost -U seu_usuario -d nome_do_banco
+
+   (Substitua "seu_usuario" e "nome_do_banco" pelos valores corretos)
+
+2. Execute estas 4 linhas SQL:
+
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS timer_started_at VARCHAR(50);
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS timer_elapsed_base INTEGER DEFAULT 0;
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS is_timer_running BOOLEAN DEFAULT FALSE;
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS current_item_index_json TEXT;
+
+3. Verifique se funcionou:
+
+   SELECT column_name 
+   FROM information_schema.columns 
+   WHERE table_name = 'rundowns' 
+   AND column_name IN ('timer_started_at', 'timer_elapsed_base', 'is_timer_running', 'current_item_index_json');
+
+   Deve mostrar 4 linhas!
+
+4. Digite \q para sair do psql
+
+5. Reinicie o backend:
+
+   sudo systemctl restart apront-backend
+
+-------------------------------------------
+MÉTODO 2: Uma Linha de Comando
+-------------------------------------------
+
+Execute tudo de uma vez (substitua os valores):
+
+psql -h localhost -U seu_usuario -d nome_do_banco << EOF
+ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS timer_started_at VARCHAR(50);
+ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS timer_elapsed_base INTEGER DEFAULT 0;
+ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS is_timer_running BOOLEAN DEFAULT FALSE;
+ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS current_item_index_json TEXT;
+SELECT column_name FROM information_schema.columns WHERE table_name = 'rundowns' AND column_name IN ('timer_started_at', 'timer_elapsed_base', 'is_timer_running', 'current_item_index_json');
+EOF
+
+-------------------------------------------
+COMO DESCOBRIR O NOME DO BANCO
+-------------------------------------------
+
+Se você não souber o nome do banco, execute:
+
+psql -h localhost -U seu_usuario -l
+
+Isso vai mostrar uma lista de todos os bancos.
+Procure por um que tenha nome relacionado ao projeto.
+
+-------------------------------------------
+DEPOIS DA MIGRAÇÃO
+-------------------------------------------
+
+✅ Reinicie o backend
+✅ Teste o sistema
+✅ O erro 500 vai parar
+✅ O timer não vai mais iniciar automaticamente
+
+===========================================
+

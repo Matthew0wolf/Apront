@@ -1,0 +1,59 @@
+===========================================
+COMO RODAR A MIGRAÇÃO EM PRODUÇÃO
+===========================================
+
+PROBLEMA:
+- Erro 500: column rundowns.timer_started_at does not exist
+- Timer iniciando automaticamente "ao vivo"
+
+SOLUÇÃO RÁPIDA (Escolha uma):
+
+-------------------------------------------
+OPÇÃO 1: SQL DIRETO (MAIS RÁPIDO)
+-------------------------------------------
+
+1. Conecte no PostgreSQL:
+   psql -h localhost -U seu_usuario -d apront_db
+
+2. Execute estas 4 linhas:
+   
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS timer_started_at VARCHAR(50);
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS timer_elapsed_base INTEGER DEFAULT 0;
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS is_timer_running BOOLEAN DEFAULT FALSE;
+   ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS current_item_index_json TEXT;
+
+3. Verifique se funcionou:
+   SELECT column_name FROM information_schema.columns 
+   WHERE table_name = 'rundowns' 
+   AND column_name IN ('timer_started_at', 'timer_elapsed_base', 'is_timer_running', 'current_item_index_json');
+
+   Deve mostrar 4 linhas!
+
+4. Reinicie o backend
+   sudo systemctl restart apront-backend
+
+-------------------------------------------
+OPÇÃO 2: VIA PYTHON (se tiver acesso)
+-------------------------------------------
+
+1. Encontrar o diretório:
+   find / -name "app.py" -path "*/backend/*" 2>/dev/null
+
+2. Entrar no diretório:
+   cd /caminho/encontrado/backend
+
+3. Rodar migração:
+   python3 scripts/migrations/add_timer_state_fields.py
+
+   IMPORTANTE: Use python3 (não python)!
+
+4. Reinicie o backend
+
+===========================================
+DEPOIS DISSO:
+- ✅ Erro 500 vai parar
+- ✅ Timer não vai mais iniciar automaticamente
+- ✅ Tudo vai funcionar normalmente
+
+===========================================
+

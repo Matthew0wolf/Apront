@@ -693,9 +693,12 @@ def get_timer_state(rundown_id):
                 time_elapsed = timer_elapsed_base
         else:
             time_elapsed = timer_elapsed_base
-    except AttributeError:
-        # Campos não existem ainda no banco, usa status como fallback
-        is_running = rundown.status and rundown.status.lower() in ['ao vivo', 'aovivo', 'live', 'active']
+    except (AttributeError, Exception) as e:
+        # Campos não existem ainda no banco ou erro ao acessar
+        print(f"⚠️ Campos de timer não existem no banco ainda ou erro ao acessar: {e}")
+        # CRÍTICO: Sempre retornar False (pausado) quando campos não existem
+        # Não usar status como fallback para evitar iniciar automaticamente
+        is_running = False
         time_elapsed = 0
     
     # Parse current_item_index
@@ -710,12 +713,21 @@ def get_timer_state(rundown_id):
     except AttributeError:
         pass
     
+    # CRÍTICO: Tenta obter valores com try/except para evitar erro se colunas não existirem
+    timer_started_at_val = None
+    timer_elapsed_base_val = 0
+    try:
+        timer_started_at_val = getattr(rundown, 'timer_started_at', None)
+        timer_elapsed_base_val = getattr(rundown, 'timer_elapsed_base', 0) or 0
+    except AttributeError:
+        pass
+    
     return jsonify({
         'isRunning': is_running,
         'timeElapsed': time_elapsed,
         'currentItemIndex': current_item_index,
-        'timerStartedAt': getattr(rundown, 'timer_started_at', None),
-        'timerElapsedBase': getattr(rundown, 'timer_elapsed_base', 0) or 0
+        'timerStartedAt': timer_started_at_val,
+        'timerElapsedBase': timer_elapsed_base_val
     })
 
 # Atualizar estado do timer (iniciar, pausar, atualizar)

@@ -429,29 +429,55 @@ export const RundownProvider = ({ children }) => {
             
             console.log(`✅ loadRundownState: Estado aplicado do backend - isRunning: ${timerState.isRunning}, timeElapsed: ${timerState.timeElapsed}`);
           } else {
-            // Fallback: usa status do rundown se a rota ainda não existir
-            console.warn('⚠️ loadRundownState: Rota de timer-state não disponível, usando fallback');
-            const rundownStatus = rundownData.status;
-            const statusLower = rundownStatus ? rundownStatus.toLowerCase() : '';
-            const isLive = statusLower === 'ao vivo' || statusLower === 'aovivo' || statusLower === 'live' || statusLower === 'active';
-            setIsTimerRunning(isLive);
+            // Erro ao buscar estado do timer (500, 404, etc)
+            console.warn('⚠️ loadRundownState: Erro ao buscar estado do timer do backend:', timerStateResponse.status);
+            
+            // CRÍTICO: NÃO iniciar automaticamente - sempre começar pausado
+            // Apenas usa valores do localStorage se existirem, senão inicia em 0 e pausado
+            const savedIsRunning = localStorage.getItem(`isRunning_${rundownIdStr}`);
+            if (savedIsRunning !== null) {
+              try {
+                setIsTimerRunning(JSON.parse(savedIsRunning));
+              } catch (e) {
+                setIsTimerRunning(false); // Sempre começar pausado se houver erro
+              }
+            } else {
+              setIsTimerRunning(false); // Sempre começar pausado
+            }
+            
             setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
+            console.log('✅ loadRundownState: Timer iniciado como PAUSADO (erro ao buscar do backend)');
           }
         } catch (error) {
-          console.warn('⚠️ loadRundownState: Erro ao buscar estado do timer do backend, usando fallback:', error);
-          // Fallback: usa status do rundown
-          const rundownStatus = rundownData.status;
-          const statusLower = rundownStatus ? rundownStatus.toLowerCase() : '';
-          const isLive = statusLower === 'ao vivo' || statusLower === 'aovivo' || statusLower === 'live' || statusLower === 'active';
-          setIsTimerRunning(isLive);
+          console.warn('⚠️ loadRundownState: Erro ao buscar estado do timer do backend, usando valores locais:', error);
+          
+          // CRÍTICO: NÃO iniciar automaticamente - sempre começar pausado
+          const savedIsRunning = localStorage.getItem(`isRunning_${rundownIdStr}`);
+          if (savedIsRunning !== null) {
+            try {
+              setIsTimerRunning(JSON.parse(savedIsRunning));
+            } catch (e) {
+              setIsTimerRunning(false); // Sempre começar pausado se houver erro
+            }
+          } else {
+            setIsTimerRunning(false); // Sempre começar pausado
+          }
+          
           setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
+          console.log('✅ loadRundownState: Timer iniciado como PAUSADO (erro na requisição)');
         }
       } else {
-        // Sem token, usa fallback
-        const rundownStatus = rundownData.status;
-        const statusLower = rundownStatus ? rundownStatus.toLowerCase() : '';
-        const isLive = statusLower === 'ao vivo' || statusLower === 'aovivo' || statusLower === 'live' || statusLower === 'active';
-        setIsTimerRunning(isLive);
+        // Sem token, sempre começar pausado
+        const savedIsRunning = localStorage.getItem(`isRunning_${rundownIdStr}`);
+        if (savedIsRunning !== null) {
+          try {
+            setIsTimerRunning(JSON.parse(savedIsRunning));
+          } catch (e) {
+            setIsTimerRunning(false);
+          }
+        } else {
+          setIsTimerRunning(false); // Sempre começar pausado
+        }
         setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
       }
       
