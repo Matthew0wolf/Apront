@@ -188,15 +188,25 @@ export const RundownProvider = ({ children }) => {
       }
       
       // CRÍTICO: Atualizar status do rundown se fornecido
-      if (changes.status && isActiveRundown && activeRundown) {
-        console.log('✅ RundownContext: Atualizando status do rundown:', changes.status);
-        setActiveRundown(prev => ({ ...prev, status: changes.status }));
-        // Atualizar também na lista de rundowns
-        setRundowns(prev => prev.map(r => 
-          String(r.id) === rundownIdStr 
-            ? { ...r, status: changes.status }
-            : r
-        ));
+      // SEMPRE atualiza a lista de rundowns quando o status muda, independente de estar ativo ou não
+      // Isso garante que o indicador "Ao Vivo" funcione mesmo após atualizar a página
+      if (changes.status) {
+        const rundownExists = rundowns.some(r => String(r.id) === rundownIdStr);
+        if (rundownExists) {
+          console.log('✅ RundownContext: Atualizando status do rundown na lista:', { rundownId: rundownIdStr, newStatus: changes.status });
+          // Atualiza na lista de rundowns (sempre, independente de estar ativo)
+          setRundowns(prev => prev.map(r => 
+            String(r.id) === rundownIdStr 
+              ? { ...r, status: changes.status }
+              : r
+          ));
+        }
+        
+        // Se for o rundown ativo, também atualiza o activeRundown
+        if (isActiveRundown && activeRundown) {
+          console.log('✅ RundownContext: Atualizando status do rundown ativo:', changes.status);
+          setActiveRundown(prev => ({ ...prev, status: changes.status }));
+        }
       }
       
       // Aplica outras mudanças apenas se for o rundown ativo

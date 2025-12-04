@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const ProjectsView = () => {
-  const { rundowns, handleCreateRundown, handleDeleteRundown, handleUpdateRundownMembers, handleUpdateRundown, loadRundownState, isRunning, activeRundown } = useRundown();
+  const { rundowns, handleCreateRundown, handleDeleteRundown, handleUpdateRundownMembers, handleUpdateRundown, loadRundownState } = useRundown();
   const { toast } = useToast();
   const navigate = useNavigate();
   const { token, user } = useContext(AuthContext);
@@ -60,9 +60,6 @@ const ProjectsView = () => {
       });
     }
   };
-
-  // Identifica o projeto ativo (ao vivo)
-  const liveProject = isRunning && activeRundown ? rundowns.find(r => r.id === activeRundown.id) : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -142,7 +139,9 @@ const ProjectsView = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {filteredProjects.map((project, index) => {
-              const isLive = liveProject && liveProject.id === project.id;
+              // CRÍTICO: Usa o campo status do projeto ao invés de liveProject
+              // Isso garante que o indicador funcione mesmo após atualizar a página
+              const isLive = project.status && project.status.toLowerCase() === 'ao vivo';
               
               return (
                 <motion.div
