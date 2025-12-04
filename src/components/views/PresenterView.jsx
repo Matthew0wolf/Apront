@@ -316,31 +316,57 @@ const PresenterView = () => {
     }
 
     try {
+      // PRIMEIRO: Tenta carregar do rundown local (sincronização instantânea)
+      if (rundown?.items) {
+        for (const folder of rundown.items) {
+          if (folder.children) {
+            const localItem = folder.children.find(item => String(item.id) === String(itemId));
+            if (localItem && (localItem.script || localItem.talking_points || localItem.pronunciation_guide || localItem.presenter_notes)) {
+              console.log('✅ Script carregado do rundown local (instantâneo):', itemId);
+              const localScript = {
+                id: localItem.id,
+                script: localItem.script || '',
+                talking_points: Array.isArray(localItem.talking_points) ? localItem.talking_points : 
+                               (typeof localItem.talking_points === 'string' ? JSON.parse(localItem.talking_points || '[]') : []),
+                pronunciation_guide: localItem.pronunciation_guide || '',
+                presenter_notes: localItem.presenter_notes || ''
+              };
+              setCurrentScript(localScript);
+              // Continua tentando carregar do banco para pegar versão mais atualizada (se existir)
+            }
+          }
+        }
+      }
+      
       // Verifica se o item tem ID temporário (string) ou real (número)
       const isTemporaryId = isNaN(Number(itemId));
       
       if (isTemporaryId) {
-        // Item ainda não foi salvo no backend: não tenta carregar da API
-        console.log('📝 Item temporário, pulando carregamento da API:', itemId);
-        setCurrentScript(null);
+        // Item ainda não foi salvo no backend: já carregou do rundown local acima
+        console.log('📝 Item temporário, usando script do rundown local:', itemId);
         return;
       }
       
+      // Tenta carregar do banco para pegar versão mais atualizada (se existir)
       const response = await apiCall(`/api/items/${itemId}/script`);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Script carregado para item:', itemId, data);
+        console.log('✅ Script carregado do banco para item:', itemId, data);
         setCurrentScript(data);
+      } else if (response.status === 404) {
+        // Item não existe no banco: mantém o script do rundown local (se existir)
+        console.log('⚠️ Item não encontrado no banco, usando script do rundown local:', itemId);
+        // O script já foi carregado do rundown local acima, então não precisa fazer nada
       } else {
-        console.warn('⚠️ Erro ao carregar script:', response.status);
-        setCurrentScript(null);
+        console.warn('⚠️ Erro ao carregar script do banco:', response.status);
+        // Mantém o script do rundown local (se existir)
       }
     } catch (error) {
       console.error('❌ Erro ao carregar script:', error);
-      setCurrentScript(null);
+      // Mantém o script do rundown local (se existir)
     }
-  }, [apiCall]);
+  }, [apiCall, rundown]);
 
   // Carregar script do item atual quando o item muda
   useEffect(() => {
@@ -363,14 +389,33 @@ const PresenterView = () => {
           changes: changes.items
         });
         
-        // Verifica se o item atual está nas mudanças
-        const itemWasUpdated = changes.items.some(folder => 
-          folder.children?.some(item => String(item.id) === String(currentItem.id))
-        );
+        // Busca o item atualizado na nova estrutura
+        let updatedItem = null;
+        for (const folder of changes.items) {
+          if (folder.children) {
+            updatedItem = folder.children.find(item => String(item.id) === String(currentItem.id));
+            if (updatedItem) break;
+          }
+        }
         
-        if (itemWasUpdated) {
-          console.log('✅ PresenterView: Item atual foi atualizado, recarregando script...');
-          // Recarrega o script do item atual
+        if (updatedItem) {
+          console.log('✅ PresenterView: Item atual foi atualizado, atualizando script localmente e tentando recarregar do banco...');
+          
+          // Atualiza o script localmente imediatamente (para sincronização instantânea)
+          if (updatedItem.script !== undefined || updatedItem.talking_points || updatedItem.pronunciation_guide || updatedItem.presenter_notes) {
+            const localScript = {
+              id: updatedItem.id,
+              script: updatedItem.script || '',
+              talking_points: Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
+                             (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []),
+              pronunciation_guide: updatedItem.pronunciation_guide || '',
+              presenter_notes: updatedItem.presenter_notes || ''
+            };
+            setCurrentScript(localScript);
+            console.log('✅ PresenterView: Script atualizado localmente (instantâneo)');
+          }
+          
+          // Também tenta recarregar do banco (se o item existir lá)
           loadScript(currentItem.id);
         }
       }
@@ -380,7 +425,8 @@ const PresenterView = () => {
     const handleScriptUpdated = (event) => {
       const { itemId } = event.detail;
       if (itemId && currentItem?.id && String(itemId) === String(currentItem.id)) {
-        console.log('📡 PresenterView: Script atualizado detectado, recarregando...', itemId);
+        console.log('📡 PresenterView: Script atualizado detectado, recarregando imediatamente...', itemId);
+        // Recarrega imediatamente, sem delay
         loadScript(currentItem.id);
       }
     };

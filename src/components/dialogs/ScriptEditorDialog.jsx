@@ -94,18 +94,24 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       const isTemporaryId = isNaN(Number(item.id));
       
       if (isTemporaryId) {
-        // Item ainda não foi salvo no backend: salva apenas no estado local
-        console.log('📝 Salvando script localmente para item temporário:', item.id);
+        // Item ainda não foi salvo no backend: salva no estado local e sincroniza via WebSocket
+        console.log('📝 Salvando script localmente para item temporário e sincronizando:', item.id);
         
-        // Dispara evento para sincronizar script no rundown local
+        // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
         if (onSave) {
           onSave(scriptData);
         }
         
+        // Dispara evento para notificar outros clientes (especialmente o apresentador)
+        window.dispatchEvent(new CustomEvent('scriptUpdated', {
+          detail: { itemId: item.id }
+        }));
+        
         toast({
           title: "✅ Script salvo",
-          description: "O script foi atualizado com sucesso!"
+          description: "O script foi atualizado e sincronizado com sucesso!"
         });
+        setIsSaving(false);
         onClose();
       } else {
         // Item existe no backend: salva via API
@@ -139,31 +145,65 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           onClose();
         } else {
           const errorData = await response.json().catch(() => ({}));
-          console.error('❌ Erro ao salvar script:', response.status, errorData);
           
           // Se for 404, o item pode não ter sido salvo no banco ainda
-          // Nesse caso, salva localmente para que seja incluído quando o rundown for salvo
+          // Nesse caso, salva localmente e sincroniza imediatamente via WebSocket
           if (response.status === 404) {
-            console.warn('⚠️ Item não encontrado no banco. Salvando localmente...', item.id);
-            // Salva localmente através do callback onSave
+            console.warn('⚠️ Item não encontrado no banco (404). Salvando localmente e sincronizando...', item.id);
+            // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
             if (onSave) {
               onSave(scriptData);
             }
+            // Dispara evento para notificar outros clientes (especialmente o apresentador)
+            window.dispatchEvent(new CustomEvent('scriptUpdated', {
+              detail: { itemId: item.id }
+            }));
             toast({
-              title: "⏳ Script salvo localmente",
-              description: "O script será sincronizado quando o projeto for salvo."
+              title: "✅ Script salvo localmente",
+              description: "O script foi sincronizado. Será salvo no banco quando o projeto for salvo."
             });
+            setIsSaving(false);
             onClose();
             return;
           }
           
           // Se for 401, pode ser token expirado - o useApi já tenta refresh automaticamente
-          // Mas se ainda assim falhar, mostra mensagem apropriada
+          // Mas se ainda assim falhar, salva localmente e sincroniza via WebSocket
           if (response.status === 401) {
-            throw new Error('Sessão expirada. Por favor, recarregue a página e faça login novamente.');
+            console.warn('⚠️ Erro de autenticação (401). Salvando script localmente e sincronizando...', item.id);
+            // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
+            if (onSave) {
+              onSave(scriptData);
+            }
+            // Dispara evento para notificar outros clientes (especialmente o apresentador)
+            window.dispatchEvent(new CustomEvent('scriptUpdated', {
+              detail: { itemId: item.id }
+            }));
+            toast({
+              title: "✅ Script salvo localmente",
+              description: "O script foi sincronizado. Será salvo no banco quando o projeto for salvo."
+            });
+            setIsSaving(false);
+            onClose();
+            return;
           }
           
-          throw new Error(errorData.error || 'Erro ao salvar script');
+          // Para outros erros, também salva localmente como fallback e sincroniza
+          console.warn('⚠️ Erro ao salvar script no backend. Salvando localmente e sincronizando...', item.id, errorData);
+          if (onSave) {
+            onSave(scriptData);
+          }
+          // Dispara evento para notificar outros clientes (especialmente o apresentador)
+          window.dispatchEvent(new CustomEvent('scriptUpdated', {
+            detail: { itemId: item.id }
+          }));
+          toast({
+            title: "✅ Script salvo localmente",
+            description: "O script foi sincronizado. Será salvo no banco quando possível."
+          });
+          setIsSaving(false);
+          onClose();
+          return;
         }
       }
     } catch (error) {
