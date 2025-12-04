@@ -43,10 +43,16 @@ def jwt_required(allowed_roles=None, permission=None):
                     # Formato: "Bearer <token>"
                     token = auth_header.split(' ')[1]
                 except IndexError:
-                    return jsonify({'error': 'Token inválido'}), 401
+                    print(f"❌ jwt_required: Formato de token inválido no header Authorization")
+                    response = jsonify({'error': 'Token inválido', 'detail': 'Formato incorreto no header Authorization'})
+                    response.headers.add('Access-Control-Allow-Origin', '*')
+                    return response, 401
             
             if not token:
-                return jsonify({'error': 'Token não fornecido'}), 401
+                print(f"❌ jwt_required: Token não fornecido na requisição {request.path}")
+                response = jsonify({'error': 'Token não fornecido', 'detail': 'Header Authorization ausente ou vazio'})
+                response.headers.add('Access-Control-Allow-Origin', '*')
+                return response, 401
             
             try:
                 # Decodificar token
@@ -54,10 +60,19 @@ def jwt_required(allowed_roles=None, permission=None):
                 
                 # Buscar usuário
                 user_id = payload.get('user_id')
+                if not user_id:
+                    print(f"❌ jwt_required: user_id não encontrado no payload do token")
+                    response = jsonify({'error': 'Token inválido', 'detail': 'user_id ausente no token'})
+                    response.headers.add('Access-Control-Allow-Origin', '*')
+                    return response, 401
+                
                 user = User.query.get(user_id)
                 
                 if not user:
-                    return jsonify({'error': 'Usuário não encontrado'}), 401
+                    print(f"❌ jwt_required: Usuário {user_id} não encontrado no banco de dados")
+                    response = jsonify({'error': 'Usuário não encontrado', 'detail': f'Usuário {user_id} não existe'})
+                    response.headers.add('Access-Control-Allow-Origin', '*')
+                    return response, 401
                 
                 # Adicionar usuário ao contexto global
                 g.current_user = user
@@ -66,19 +81,36 @@ def jwt_required(allowed_roles=None, permission=None):
                 if allowed_roles:
                     user_role = user.role.value if hasattr(user.role, 'value') else str(user.role)
                     if user_role not in allowed_roles:
-                        return jsonify({'error': 'Permissão negada'}), 403
+                        print(f"❌ jwt_required: Role {user_role} não permitida. Roles permitidas: {allowed_roles}")
+                        response = jsonify({'error': 'Permissão negada', 'detail': f'Role {user_role} não tem acesso'})
+                        response.headers.add('Access-Control-Allow-Origin', '*')
+                        return response, 403
                 
                 # Verificar permission se especificado
                 if permission:
                     if hasattr(user, 'has_permission') and not user.has_permission(permission):
-                        return jsonify({'error': f'Permissão negada: {permission}'}), 403
+                        print(f"❌ jwt_required: Usuário {user_id} não tem permissão {permission}")
+                        response = jsonify({'error': f'Permissão negada: {permission}'})
+                        response.headers.add('Access-Control-Allow-Origin', '*')
+                        return response, 403
                 
-            except jwt.ExpiredSignatureError:
-                return jsonify({'error': 'Token expirado'}), 401
-            except jwt.InvalidTokenError:
-                return jsonify({'error': 'Token inválido'}), 401
+            except jwt.ExpiredSignatureError as e:
+                print(f"❌ jwt_required: Token expirado para rota {request.path}")
+                response = jsonify({'error': 'Token expirado', 'detail': 'O token JWT expirou. Faça login novamente.'})
+                response.headers.add('Access-Control-Allow-Origin', '*')
+                return response, 401
+            except jwt.InvalidTokenError as e:
+                print(f"❌ jwt_required: Token inválido para rota {request.path}: {str(e)}")
+                response = jsonify({'error': 'Token inválido', 'detail': f'Token JWT inválido: {str(e)[:100]}'})
+                response.headers.add('Access-Control-Allow-Origin', '*')
+                return response, 401
             except Exception as e:
-                return jsonify({'error': f'Erro na autenticação: {str(e)}'}), 401
+                print(f"❌ jwt_required: Erro inesperado na autenticação para rota {request.path}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                response = jsonify({'error': f'Erro na autenticação', 'detail': str(e)[:200]})
+                response.headers.add('Access-Control-Allow-Origin', '*')
+                return response, 401
             
             # Executar função protegida
             return func(*args, **kwargs)

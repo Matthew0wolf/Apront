@@ -121,15 +121,10 @@ export const SyncProvider = ({ children }) => {
   };
 
   const syncRundownUpdate = async (rundownId, changes) => {
-    if (!token) {
-      console.warn('⚠️ syncRundownUpdate: Token não disponível');
-      return;
-    }
+    console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes, hasItems: !!changes.items, changesKeys: Object.keys(changes), hasToken: !!token });
     
-    console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes, hasItems: !!changes.items, changesKeys: Object.keys(changes) });
-    
-    // Se houver mudanças em 'items', salvar no banco de dados via API
-    if (changes && changes.items && Array.isArray(changes.items)) {
+    // Se houver mudanças em 'items', tentar salvar no banco de dados via API (se houver token)
+    if (changes && changes.items && Array.isArray(changes.items) && token) {
       console.log('🔍 [DEBUG] changes.items detectado!', { itemsLength: changes.items.length, rundownId });
       try {
         console.log('💾 [SAVE] Salvando pastas e eventos no banco de dados...', { 
@@ -190,16 +185,18 @@ export const SyncProvider = ({ children }) => {
           }
         } else {
           const errorData = await response.json().catch(() => ({}));
-          console.error('❌ [SAVE] Erro ao salvar no banco:', response.status, errorData);
+          console.warn('⚠️ [SAVE] Erro ao salvar no banco (continuando com sincronização WebSocket):', response.status, errorData);
+          // CRÍTICO: Mesmo com erro ao salvar no banco, continua para sincronizar via WebSocket
         }
       } catch (error) {
-        console.error('❌ [SAVE] Erro ao salvar mudanças no banco:', error);
+        console.warn('⚠️ [SAVE] Erro ao salvar mudanças no banco (continuando com sincronização WebSocket):', error);
+        // CRÍTICO: Mesmo com erro, continua para sincronizar via WebSocket
       }
-    } else {
-      console.log('ℹ️ [SAVE] Nenhuma mudança em items para salvar');
+    } else if (changes && changes.items && Array.isArray(changes.items) && !token) {
+      console.warn('⚠️ [SAVE] Token não disponível - pulando salvamento no banco, mas sincronizando via WebSocket');
     }
     
-    // Dispara evento imediatamente para o mesmo cliente
+    // CRÍTICO: Dispara evento imediatamente para o mesmo cliente (sempre, mesmo sem token ou erro)
     window.dispatchEvent(new CustomEvent('rundownSync', { 
       detail: { 
         rundownId,
@@ -207,15 +204,16 @@ export const SyncProvider = ({ children }) => {
       } 
     }));
 
-    // Envia via WebSocket para outros clientes
-    if (websocketManager.isConnected) {
+    // CRÍTICO: Envia via WebSocket para outros clientes (sempre, mesmo sem token ou erro no banco)
+    // Isso garante que o apresentador receba as atualizações em tempo real mesmo quando há erro 401
+    if (websocketManager.isConnected && websocketManager.socket) {
       const payload = {
         rundown_id: rundownId,
         changes: changes
       };
-      console.log('📡 Enviando via WebSocket:', payload);
+      console.log('📡 Enviando via WebSocket (sincronização em tempo real):', payload);
       websocketManager.socket.emit('rundown_updated', payload);
-      console.log('✅ Mudanças de rundown enviadas via WebSocket para outros clientes');
+      console.log('✅ Mudanças de rundown enviadas via WebSocket para outros clientes (incluindo apresentador)');
     } else {
       console.warn('⚠️ WebSocket não conectado. Mudanças não serão sincronizadas com outros clientes.');
     }

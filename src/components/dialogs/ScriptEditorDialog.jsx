@@ -170,7 +170,13 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           // Se for 401, pode ser token expirado - o useApi já tenta refresh automaticamente
           // Mas se ainda assim falhar, salva localmente e sincroniza via WebSocket
           if (response.status === 401) {
-            console.warn('⚠️ Erro de autenticação (401). Salvando script localmente e sincronizando...', item.id);
+            const errorDetail = errorData?.detail || errorData?.error || 'Token expirado ou inválido';
+            console.warn('⚠️ Erro de autenticação (401) ao salvar script:', {
+              itemId: item.id,
+              error: errorData,
+              detail: errorDetail
+            });
+            
             // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
             if (onSave) {
               onSave(scriptData);
@@ -179,9 +185,10 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
             window.dispatchEvent(new CustomEvent('scriptUpdated', {
               detail: { itemId: item.id }
             }));
+            
             toast({
-              title: "✅ Script salvo localmente",
-              description: "O script foi sincronizado. Será salvo no banco quando o projeto for salvo."
+              title: "⏳ Script salvo localmente",
+              description: `O script foi sincronizado. ${errorDetail === 'Token expirado' ? 'Faça login novamente para salvar no banco.' : 'Será salvo no banco quando o projeto for salvo.'}`
             });
             setIsSaving(false);
             onClose();
