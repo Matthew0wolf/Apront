@@ -102,12 +102,26 @@ const Sidebar = ({ currentView, onViewChange }) => {
         <div className="absolute inset-0 backdrop-blur-sm" />
 
         <div className="flex items-center gap-8 relative z-10">
-          <div className="flex items-center gap-3 select-none">
-            <img
-              src={isLight ? "/apront-logo-dark.svg" : "/apront-logo-light.svg"}
-              alt="Apront"
-              className="h-[38px] w-auto"
-            />
+          <div className="flex items-center gap-3 select-none relative">
+            <div className="relative inline-block">
+              <img
+                src={isLight ? "/apront-logo-dark.svg" : "/apront-logo-light.svg"}
+                alt="Apront"
+                className="h-[38px] w-auto"
+              />
+              {/* Badge Beta - canto superior direito do logo */}
+              <span
+                className="absolute top-0 right-0 text-[7px] font-extrabold px-1 py-0.5 rounded leading-none"
+                style={{
+                  backgroundColor: '#e71d36',
+                  color: '#ffffff',
+                  transform: 'translate(30%, -30%)',
+                  letterSpacing: '0.5px'
+                }}
+              >
+                BETA
+              </span>
+            </div>
           </div>
 
           {/* Desktop Navigation - Estilo Figma */}

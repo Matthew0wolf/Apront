@@ -5,6 +5,7 @@ import {
   Film, Edit3, BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/use-toast';
 import { useRundown } from '@/contexts/RundownContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import AuthContext from '@/contexts/AuthContext.jsx';
@@ -132,9 +133,28 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
   const { theme } = useTheme();
+  const { toast } = useToast();
   const isLight = theme === 'light';
   const [auditEvents, setAuditEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
+
+  // Mostra mensagem de versão de testes ao acessar o Dashboard após login
+  useEffect(() => {
+    // Verifica se acabou de fazer login (marcador no localStorage)
+    const justLoggedIn = localStorage.getItem('justLoggedIn');
+    
+    if (justLoggedIn === 'true' && user) {
+      // Mostra a mensagem
+      toast({
+        title: "⚠️ Versão de Testes",
+        description: "Você está em uma versão de testes, qualquer bug encontrado por favor, reportar a equipe de desenvolvimento",
+        duration: 10000, // 10 segundos
+      });
+      
+      // Remove o marcador para não mostrar novamente
+      localStorage.removeItem('justLoggedIn');
+    }
+  }, [user, toast]);
 
   // Calcula estatísticas conforme Figma
   const stats = useMemo(() => {

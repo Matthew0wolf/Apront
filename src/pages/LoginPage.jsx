@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useContext } from 'react';
 import AuthContext from '@/contexts/AuthContext.jsx';
+import { useToast } from '@/components/ui/use-toast';
 import { API_BASE_URL } from '@/config/api';
 
 const LoginPage = () => {
@@ -9,6 +10,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const { login } = useContext(AuthContext);
+  const { toast } = useToast();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -28,6 +30,10 @@ const LoginPage = () => {
       
       const data = await res.json();
       login(data.user, data.token);
+      
+      // Marca que acabou de fazer login para mostrar mensagem no Dashboard
+      localStorage.setItem('justLoggedIn', 'true');
+      
       navigate('/dashboard');
     } catch (err) {
       if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
