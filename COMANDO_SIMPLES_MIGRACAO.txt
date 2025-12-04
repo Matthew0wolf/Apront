@@ -1,0 +1,55 @@
+==========================================
+COMANDO SIMPLES PARA RODAR MIGRAÇÃO
+==========================================
+
+Copie e cole este comando COMPLETO na VPS:
+
+cd ~/Apront/backend && python3 << 'PYEOF'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path.home() / 'Apront' / 'backend'))
+from app import app
+from models import db
+from sqlalchemy import text
+with app.app_context():
+    print("=" * 60)
+    print("MIGRATION: Adicionando campos de timer")
+    print("=" * 60)
+    for col, typ in [
+        ("timer_started_at", "VARCHAR(50)"),
+        ("timer_elapsed_base", "INTEGER DEFAULT 0"),
+        ("is_timer_running", "BOOLEAN DEFAULT FALSE"),
+        ("current_item_index_json", "TEXT")
+    ]:
+        try:
+            db.session.execute(text(f"ALTER TABLE rundowns ADD COLUMN IF NOT EXISTS {col} {typ}"))
+            db.session.commit()
+            print(f"✅ {col} adicionada")
+        except Exception as e:
+            if 'already exists' in str(e).lower() or 'exist' in str(e).lower():
+                print(f"ℹ️  {col} já existe")
+            else:
+                print(f"⚠️  Erro em {col}: {e}")
+                db.session.rollback()
+    result = db.session.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name = 'rundowns' AND column_name IN ('timer_started_at', 'timer_elapsed_base', 'is_timer_running', 'current_item_index_json') ORDER BY column_name"))
+    columns = result.fetchall()
+    print("\n✅ Colunas verificadas:")
+    for col in columns:
+        print(f"   - {col[0]}")
+    print("\n" + "=" * 60)
+    print("✅ Migração concluída!")
+    print("=" * 60)
+PYEOF
+
+==========================================
+DEPOIS DE RODAR:
+
+1. Reinicie o backend:
+   sudo systemctl restart apront-backend
+
+2. Teste o sistema
+
+3. O erro 500 vai parar!
+
+==========================================
+
