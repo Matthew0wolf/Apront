@@ -80,6 +80,7 @@ export const RundownProvider = ({ children }) => {
   
   const rundownRef = useRef(activeRundown);
   const indexRef = useRef(currentItemIndex);
+  const pendingUpdatesRef = useRef(new Map()); // Armazena atualizações pendentes por rundownId
 
   useEffect(() => {
     rundownRef.current = activeRundown;
@@ -111,11 +112,54 @@ export const RundownProvider = ({ children }) => {
     // Listener para atualizações de rundown
     const handleRundownSync = (event) => {
       const { rundownId, changes } = event.detail;
-      console.log('📡 RundownContext: Recebida atualização via WebSocket:', { rundownId, changes });
+      const rundownIdStr = String(rundownId);
+      console.log('📡 RundownContext: Recebida atualização via WebSocket:', { rundownId: rundownIdStr, changes });
       console.log('📡 RundownContext: activeRundown?.id:', activeRundown?.id);
-      console.log('📡 RundownContext: Comparação:', String(activeRundown?.id), '===', String(rundownId));
+      console.log('📡 RundownContext: Comparação:', String(activeRundown?.id), '===', rundownIdStr);
       
-      if (String(activeRundown?.id) === String(rundownId)) {
+      const isActiveRundown = String(activeRundown?.id) === rundownIdStr;
+      const rundownExists = rundowns.some(r => String(r.id) === rundownIdStr);
+      
+      // CRÍTICO: Sempre aplicar mudanças de isRunning e timeElapsed se for o rundown ativo
+      // OU se o rundown existe na lista e não há rundown ativo (está carregando)
+      // Isso garante que o apresentador receba o estado correto ao entrar após o evento estar ao vivo
+      if (changes.isRunning !== undefined) {
+        const shouldApplyTimerState = isActiveRundown || 
+                                      (rundownExists && !activeRundown) ||
+                                      (rundownExists && changes.isRunning); // Se timer está rodando e rundown existe, sempre aplicar
+        
+        if (shouldApplyTimerState) {
+          console.log('✅ RundownContext: Atualizando isRunning via WebSocket:', changes.isRunning);
+          setIsTimerRunning(changes.isRunning);
+          
+          // CRÍTICO: Se o timer está rodando, também atualiza o tempo decorrido
+          if (changes.isRunning && changes.timeElapsed !== undefined) {
+            console.log('✅ RundownContext: Atualizando timeElapsed via WebSocket:', changes.timeElapsed);
+            setTimeElapsed(changes.timeElapsed);
+          }
+        } else if (rundownExists) {
+          // Rundown existe mas ainda não está ativo - armazena atualização pendente
+          console.log('⏳ RundownContext: Armazenando atualização pendente de isRunning:', changes.isRunning);
+          if (!pendingUpdatesRef.current.has(rundownIdStr)) {
+            pendingUpdatesRef.current.set(rundownIdStr, {});
+          }
+          const pending = pendingUpdatesRef.current.get(rundownIdStr);
+          pending.isRunning = changes.isRunning;
+          if (changes.timeElapsed !== undefined) {
+            pending.timeElapsed = changes.timeElapsed;
+          }
+        }
+      }
+      
+      // Atualizações de tempo (quando não está rodando)
+      if (changes.timeElapsed !== undefined && !changes.isRunning) {
+        if (isActiveRundown) {
+          setTimeElapsed(changes.timeElapsed);
+        }
+      }
+      
+      // Aplica outras mudanças apenas se for o rundown ativo
+      if (isActiveRundown) {
         console.log('✅ RundownContext: Aplicando mudanças ao rundown ativo');
         // Aplica as mudanças ao rundown ativo
         if (changes.currentItemIndex) {
@@ -128,27 +172,9 @@ export const RundownProvider = ({ children }) => {
           );
           setTimeElapsed(newElapsedTime);
           console.log('✅ RundownContext: currentItemIndex atualizado e timeElapsed:', newElapsedTime);
-        } else {
-          console.log('⚠️ RundownContext: changes.currentItemIndex não encontrado');
-        }
-        
-        if (changes.isRunning !== undefined) {
-          console.log('✅ RundownContext: Atualizando isRunning via WebSocket:', changes.isRunning);
-          setIsTimerRunning(changes.isRunning);
-          // CRÍTICO: Se o timer está rodando, também atualiza o tempo decorrido
-          if (changes.isRunning && changes.timeElapsed !== undefined) {
-            console.log('✅ RundownContext: Atualizando timeElapsed via WebSocket:', changes.timeElapsed);
-            setTimeElapsed(changes.timeElapsed);
-          }
-        }
-        
-        if (changes.timeElapsed !== undefined && !changes.isRunning) {
-          // Se não está rodando, ainda atualiza o tempo se fornecido
-          setTimeElapsed(changes.timeElapsed);
         }
         
         // Sincroniza mudanças na estrutura do rundown (adicionar/remover itens)
-        // IMPORTANTE: Só atualiza se items for um array (não um objeto como {updated: true})
         if (changes.items && Array.isArray(changes.items)) {
           console.log('📡 RundownContext: Atualizando estrutura do rundown:', changes.items);
           setActiveRundown(prev => ({ ...prev, items: changes.items }));
@@ -333,6 +359,22 @@ export const RundownProvider = ({ children }) => {
       setTimeElapsed(savedTime ? JSON.parse(savedTime) : 0);
       
       console.log('✅ loadRundownState: Rundown carregado com sucesso:', { id: rundownData.id, name: rundownData.name });
+      
+      // CRÍTICO: Aplica atualizações pendentes (se houver) após carregar o rundown
+      const pendingUpdate = pendingUpdatesRef.current.get(rundownIdStr);
+      if (pendingUpdate) {
+        console.log('✅ loadRundownState: Aplicando atualizações pendentes:', pendingUpdate);
+        if (pendingUpdate.isRunning !== undefined) {
+          setIsTimerRunning(pendingUpdate.isRunning);
+          console.log('✅ loadRundownState: isRunning atualizado de atualização pendente:', pendingUpdate.isRunning);
+        }
+        if (pendingUpdate.timeElapsed !== undefined) {
+          setTimeElapsed(pendingUpdate.timeElapsed);
+          console.log('✅ loadRundownState: timeElapsed atualizado de atualização pendente:', pendingUpdate.timeElapsed);
+        }
+        // Remove a atualização pendente após aplicar
+        pendingUpdatesRef.current.delete(rundownIdStr);
+      }
       
       // CRÍTICO: Após carregar, solicita estado atual do operador
       // Aguarda um pouco para garantir que o WebSocket está conectado
