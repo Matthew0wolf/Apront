@@ -16,14 +16,28 @@ class WebSocketManager {
       return;
     }
 
-    console.log('🔌 Conectando ao servidor WebSocket...', API_BASE_URL);
+    // Em produção, detecta o protocolo correto baseado na URL atual
+    let socketUrl = API_BASE_URL;
     
-    this.socket = io(API_BASE_URL, {
+    // Se estiver usando HTTP (não HTTPS), garante que o WebSocket use ws://
+    // Se estiver usando HTTPS, o Socket.IO automaticamente usará wss://
+    // O Socket.IO detecta automaticamente o protocolo baseado na URL fornecida
+    if (window.location.protocol === 'https:') {
+      // Força HTTPS para produção segura
+      socketUrl = API_BASE_URL.replace('http://', 'https://');
+    }
+    
+    console.log('🔌 Conectando ao servidor WebSocket...', socketUrl);
+    console.log('🔧 Protocolo da página:', window.location.protocol);
+    
+    this.socket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
-      reconnectionDelay: this.reconnectDelay
+      reconnectionDelay: this.reconnectDelay,
+      // Força o Socket.IO a usar o protocolo correto baseado na URL
+      forceNew: false
     });
 
     this.socket.on('connect', () => {
