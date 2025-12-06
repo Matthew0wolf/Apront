@@ -259,12 +259,24 @@ const OperatorView = () => {
     }
   }, [rundown]); // Removido globalDragRef das dependências para evitar loop, mas o efeito é o mesmo. O uso de globalDragRef no if já garante o comportamento.
 
+  // Ref para prevenir múltiplas chamadas
+  const loadingRef = useRef(false);
+  
   useEffect(() => {
     const loadRundown = async () => {
+      // Previne múltiplas chamadas simultâneas
+      if (loadingRef.current) {
+        console.log('⏳ OperatorView: Já está carregando rundown, ignorando chamada duplicada');
+        return;
+      }
+      
       if (!rundown || String(rundown.id) !== String(projectId)) {
+        loadingRef.current = true;
         console.log('🔗 OperatorView: Carregando rundown:', projectId);
         const rundownData = await loadRundownState(projectId);
         console.log('🔗 OperatorView: Rundown carregado:', rundownData?.name);
+        loadingRef.current = false;
+        
         if (!rundownData) {
           // Aguarda um pouco mais antes de redirecionar (pode estar carregando)
           setTimeout(() => {
@@ -277,7 +289,7 @@ const OperatorView = () => {
       }
     };
     loadRundown();
-  }, [projectId, rundown, loadRundownState, navigate, toast]);
+  }, [projectId, rundown?.id, loadRundownState, navigate, toast]);
 
   // Conecta ao rundown via WebSocket quando o componente monta
   useEffect(() => {
@@ -293,37 +305,41 @@ const OperatorView = () => {
   }, [projectId, setActiveRundownId]);
 
   // CRÍTICO: Responde quando apresentador solicita estado do timer
+  // REMOVIDO: Envio múltiplo (3x) estava causando resets do timer
+  // Agora envia apenas uma vez, imediatamente
+  const lastSentTimerStateRef = useRef(null);
+  
   useEffect(() => {
     const handleRequestTimerState = (event) => {
       const { rundownId } = event.detail;
       // Responde se o rundownId corresponde ao projectId atual
       // Não precisa verificar rundown?.id porque podemos usar projectId diretamente
       if (String(rundownId) === String(projectId)) {
-        console.log('📡 OperatorView: Apresentador solicitou estado do timer, enviando IMEDIATAMENTE...', {
+        // Previne envios duplicados muito próximos (dentro de 500ms)
+        const now = Date.now();
+        const lastSent = lastSentTimerStateRef.current;
+        if (lastSent && (now - lastSent.timestamp) < 500) {
+          console.log('⏳ OperatorView: Ignorando solicitação muito próxima da anterior');
+          return;
+        }
+        
+        console.log('📡 OperatorView: Apresentador solicitou estado do timer, enviando...', {
           isRunning,
           timeElapsed,
           currentItemIndex,
           projectId,
           hasRundown: !!rundown
         });
-        // CRÍTICO: Envia o estado atual do timer IMEDIATAMENTE
-        // Não aguarda nada, responde na hora para que o apresentador receba o estado correto
+        // CRÍTICO: Envia o estado atual do timer IMEDIATAMENTE (apenas uma vez)
         // Passa o projectId explicitamente para garantir que funcione mesmo se activeRundownId não estiver definido
         syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
         
-        // Se o timer está rodando, também envia novamente após um pequeno delay
-        // para garantir que o apresentador receba mesmo se houver algum problema de timing
-        if (isRunning) {
-          setTimeout(() => {
-            console.log('📡 OperatorView: Reenviando estado do timer (timer está rodando)...');
-            syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
-          }, 500);
-          // Envia uma terceira vez após mais um delay para garantir
-          setTimeout(() => {
-            console.log('📡 OperatorView: Reenviando estado do timer novamente (timer está rodando)...');
-            syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
-          }, 1500);
-        }
+        // Registra que enviou
+        lastSentTimerStateRef.current = {
+          timestamp: now,
+          timeElapsed,
+          isRunning
+        };
       } else {
         console.log('⚠️ OperatorView: Solicitação de estado do timer ignorada (rundownId diferente):', {
           requestedRundownId: rundownId,
@@ -334,7 +350,7 @@ const OperatorView = () => {
 
     window.addEventListener('requestTimerState', handleRequestTimerState);
     return () => window.removeEventListener('requestTimerState', handleRequestTimerState);
-  }, [projectId, isRunning, timeElapsed, currentItemIndex, syncTimerState, rundown]);
+  }, [projectId, isRunning, timeElapsed, currentItemIndex, syncTimerState]);
 
   useEffect(() => {
     const connectionInterval = setInterval(() => setIsOnline(Math.random() > 0.1), 5000);

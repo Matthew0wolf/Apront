@@ -83,6 +83,8 @@ export const RundownProvider = ({ children }) => {
   const indexRef = useRef(currentItemIndex);
   const pendingUpdatesRef = useRef(new Map()); // Armazena atualizações pendentes por rundownId
   const lastPauseTimeRef = useRef(null); // Armazena timestamp da última pausa para evitar sobrescrita
+  const loadingRundownRef = useRef(new Set()); // Previne múltiplas chamadas simultâneas de loadRundownState para o mesmo rundownId
+  const lastLoadedTimerStateRef = useRef(null); // Armazena o último estado do timer carregado para evitar resets
 
   useEffect(() => {
     rundownRef.current = activeRundown;
@@ -354,8 +356,30 @@ export const RundownProvider = ({ children }) => {
   const loadRundownState = useCallback(async (rundownId) => {
     // Converte rundownId para string para comparação
     const rundownIdStr = String(rundownId);
+    
+    // CRÍTICO: Previne múltiplas chamadas simultâneas para o mesmo rundownId
+    if (loadingRundownRef.current.has(rundownIdStr)) {
+      console.log('⏳ loadRundownState: Já está carregando este rundown, ignorando chamada duplicada:', rundownIdStr);
+      return rundowns.find(p => String(p.id) === rundownIdStr) || null;
+    }
+    
+    // Marca como carregando
+    loadingRundownRef.current.add(rundownIdStr);
+    
     console.log('🔄 loadRundownState: Carregando rundown:', rundownIdStr);
     console.log('🔄 loadRundownState: Rundowns disponíveis:', rundowns.map(r => ({ id: String(r.id), name: r.name })));
+    
+    // Preserva o estado atual do timer ANTES de carregar do backend
+    // Isso evita que o timer seja resetado incorretamente
+    const currentTimeElapsed = timeElapsed;
+    const currentIsRunning = isTimerRunning;
+    const currentItemIndexValue = currentItemIndex;
+    
+    console.log('💾 loadRundownState: Estado atual preservado:', {
+      timeElapsed: currentTimeElapsed,
+      isRunning: currentIsRunning,
+      currentItemIndex: currentItemIndexValue
+    });
     
     // Busca o rundown correto (compara como string)
     let rundownData = rundowns.find(p => String(p.id) === rundownIdStr);
@@ -427,11 +451,39 @@ export const RundownProvider = ({ children }) => {
               // Se houve uma pausa recente, sempre manter o estado local (pausado)
               console.log('⏸️ Pausa recente detectada, mantendo estado pausado local (evita sobrescrita)');
               setIsTimerRunning(false);
+              // Mantém o tempo atual se for maior que o do backend (evita reset)
+              if (currentTimeElapsed > (timerState.timeElapsed || 0)) {
+                console.log('💾 Mantendo tempo atual (maior que backend):', currentTimeElapsed);
+                setTimeElapsed(currentTimeElapsed);
+              } else {
+                setTimeElapsed(timerState.timeElapsed || 0);
+              }
             } else {
+              // CRÍTICO: Só atualiza se o timer estava rodando E o valor do backend é válido E não é menor que o atual
+              // Isso previne que o timer seja resetado quando você volta para a tela
+              const backendTime = timerState.timeElapsed || 0;
+              const shouldUpdateTime = !currentIsRunning || backendTime >= currentTimeElapsed || backendTime === 0;
+              
+              if (shouldUpdateTime) {
+                // Se o timer estava rodando localmente, pode ser que o backend tenha um valor desatualizado
+                // Nesse caso, mantém o valor local se for maior
+                if (currentIsRunning && backendTime < currentTimeElapsed && backendTime > 0) {
+                  console.log('⚠️ Backend tem valor menor que local (timer rodando), mantendo valor local:', {
+                    local: currentTimeElapsed,
+                    backend: backendTime
+                  });
+                  setTimeElapsed(currentTimeElapsed);
+                } else {
+                  setTimeElapsed(backendTime);
+                }
+              } else {
+                console.log('💾 Mantendo tempo atual (maior que backend):', currentTimeElapsed);
+                setTimeElapsed(currentTimeElapsed);
+              }
+              
               // Aplica o estado real do backend apenas se não houver pausa recente
               setIsTimerRunning(timerState.isRunning || false);
             }
-            setTimeElapsed(timerState.timeElapsed || 0);
             
             if (timerState.currentItemIndex) {
               setCurrentItemIndex(timerState.currentItemIndex);
@@ -502,30 +554,60 @@ export const RundownProvider = ({ children }) => {
           console.log('✅ loadRundownState: isRunning atualizado de atualização pendente:', pendingUpdate.isRunning);
         }
         if (pendingUpdate.timeElapsed !== undefined) {
-          setTimeElapsed(pendingUpdate.timeElapsed);
-          console.log('✅ loadRundownState: timeElapsed atualizado de atualização pendente:', pendingUpdate.timeElapsed);
+          // Só atualiza se o valor pendente for maior ou igual ao atual (evita reset)
+          const pendingTime = pendingUpdate.timeElapsed;
+          if (pendingTime >= timeElapsed || pendingTime === 0) {
+            setTimeElapsed(pendingTime);
+            console.log('✅ loadRundownState: timeElapsed atualizado de atualização pendente:', pendingTime);
+          } else {
+            console.log('⚠️ loadRundownState: Ignorando atualização pendente com valor menor:', {
+              atual: timeElapsed,
+              pendente: pendingTime
+            });
+          }
         }
         // Remove a atualização pendente após aplicar
         pendingUpdatesRef.current.delete(rundownIdStr);
       }
       
-      // CRÍTICO: Após carregar, solicita estado atual do operador via WebSocket (para sincronização adicional)
-      setTimeout(() => {
-        console.log('📡 loadRundownState: Solicitando estado atual do timer do operador via WebSocket...');
-        window.dispatchEvent(new CustomEvent('requestTimerState', {
-          detail: { rundownId: rundownIdStr }
-        }));
-      }, 1500); // Aguarda 1.5 segundos após carregar
+      // Armazena o último estado carregado
+      lastLoadedTimerStateRef.current = {
+        rundownId: rundownIdStr,
+        timeElapsed: timeElapsed,
+        isRunning: isTimerRunning,
+        timestamp: Date.now()
+      };
+      
+      // REMOVIDO: requestTimerState estava causando múltiplos resets
+      // A sincronização via WebSocket já é suficiente e não causa resets
+      
+      // Remove marca de carregando
+      loadingRundownRef.current.delete(rundownIdStr);
     } catch (error) {
       console.error("❌ loadRundownState: Erro ao carregar estado:", error);
       // Em caso de erro, sempre usa dados do servidor
+      // CRÍTICO: Preserva o estado do timer mesmo em caso de erro (não reseta)
       setActiveRundown(rundownData);
       setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
-      setIsTimerRunning(false);
-      setTimeElapsed(0);
+      
+      // Só reseta se não houver estado preservado
+      if (currentTimeElapsed > 0 || currentIsRunning) {
+        console.log('💾 Mantendo estado do timer após erro:', {
+          timeElapsed: currentTimeElapsed,
+          isRunning: currentIsRunning
+        });
+        setTimeElapsed(currentTimeElapsed);
+        setIsTimerRunning(currentIsRunning);
+      } else {
+        setIsTimerRunning(false);
+        setTimeElapsed(0);
+      }
+      
+      // Remove marca de carregando mesmo em caso de erro
+      loadingRundownRef.current.delete(rundownIdStr);
     }
     return rundownData;
-  }, [rundowns, setTimeElapsed, setIsTimerRunning, fetchRundowns]);
+  }, [rundowns, setTimeElapsed, setIsTimerRunning, fetchRundowns, timeElapsed, isTimerRunning, currentItemIndex]);
 
   const handleCreateRundown = async (newRundownData) => {
     const payload = {
