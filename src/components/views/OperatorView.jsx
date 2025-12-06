@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { useNotifications } from '@/contexts/NotificationsContext.jsx';
 import { usePresenterConfig } from '@/contexts/PresenterConfigContext.jsx';
+import { calculateOptimalScrollSpeed, calculateSpeedByDuration } from '@/utils/scrollSpeedCalculator';
 import EditItemDialog from '@/components/dialogs/EditItemDialog';
 import EditFolderDialog from '@/components/dialogs/EditFolderDialog';
 import ScriptEditorDialog from '@/components/dialogs/ScriptEditorDialog';
@@ -423,22 +424,35 @@ const OperatorView = () => {
   };
 
   const handleStop = () => {
+    console.log('🛑 handleStop: Resetando timer e voltando ao início');
+    
+    // CRÍTICO: Reseta tudo para o estado inicial
     setIsRunning(false);
     setTimeElapsed(0);
-    setCurrentItemIndex(0, 0);
+    // CORREÇÃO: setCurrentItemIndex espera um objeto, não dois argumentos
+    setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
     
-    // Sincroniza o estado de parada com outros clientes
+    // CRÍTICO: Sincroniza o estado de parada/reset com outros clientes (operador e apresentador)
+    // Isso garante que tanto o operador quanto o apresentador voltem ao início
     syncTimerState(false, 0, { folderIndex: 0, itemIndex: 0 }, projectId);
+    
+    // CRÍTICO: Também sincroniza a mudança de item para garantir que o apresentador atualize a tela
+    if (rundown?.id) {
+      syncCurrentItemChange({ folderIndex: 0, itemIndex: 0 });
+    }
 
     if (rundown?.id) {
       updateRundownStatus(rundown.id, 'Parado');
     }
+    
     // Notificação (já mostra toast automaticamente)
     addNotification({
       type: 'warning',
       title: '⏹️ Transmissão Parada',
-      description: `${rundown?.name || 'Rundown'} foi encerrado`
+      description: `${rundown?.name || 'Rundown'} foi encerrado e resetado`
     });
+    
+    console.log('✅ handleStop: Reset completo - timer: 0, item: (0, 0), running: false');
   };
 
   const addFolder = () => {
@@ -641,15 +655,70 @@ const OperatorView = () => {
     if (folderIndex !== -1) {
       const itemIndex = newRundown.items[folderIndex].children.findIndex(c => c.id === editingScript.id);
       if (itemIndex !== -1) {
+        const item = newRundown.items[folderIndex].children[itemIndex];
+        const itemDuration = Number(item.duration) || 0;
+        
         // Atualiza os campos de script no item
         newRundown.items[folderIndex].children[itemIndex] = {
-          ...newRundown.items[folderIndex].children[itemIndex],
+          ...item,
           script: scriptData.script,
           talking_points: scriptData.talkingPoints,
           pronunciation_guide: scriptData.pronunciationGuide,
           presenter_notes: scriptData.presenterNotes
         };
         setRundown(newRundown);
+        
+        // CRÍTICO: Calcula e aplica velocidade automática do scroll se houver script
+        // Só ajusta se o script foi significativamente alterado (adicionado ou removido)
+        const hadScript = item.script && item.script.trim().length > 0;
+        const hasScript = scriptData.script && scriptData.script.trim().length > 0;
+        const scriptChanged = hadScript !== hasScript || 
+          (hasScript && Math.abs((scriptData.script.length || 0) - (item.script?.length || 0)) > 50);
+        
+        if (hasScript && itemDuration > 0 && scriptChanged) {
+          const optimalSpeed = calculateOptimalScrollSpeed(
+            itemDuration,
+            scriptData.script,
+            presenterConfig.scrollSpeed
+          );
+          
+          if (optimalSpeed !== null) {
+            const durationMinutes = Math.floor(itemDuration / 60);
+            const durationSeconds = itemDuration % 60;
+            const durationText = durationMinutes > 0 
+              ? `${durationMinutes}min ${durationSeconds > 0 ? durationSeconds + 's' : ''}`.trim()
+              : `${durationSeconds}s`;
+            const wordCount = scriptData.script.split(/\s+/).filter(Boolean).length;
+            
+            console.log('⚙️ Calculando velocidade automática do scroll:', {
+              duration: itemDuration,
+              durationText,
+              scriptLength: scriptData.script.length,
+              wordCount,
+              currentSpeed: presenterConfig.scrollSpeed,
+              optimalSpeed
+            });
+            
+            updatePresenterConfig({ scrollSpeed: optimalSpeed });
+            
+            toast({
+              title: "⚙️ Velocidade ajustada automaticamente",
+              description: `Scroll ajustado para ${optimalSpeed.toFixed(2)}x (evento: ${durationText}, script: ~${Math.ceil(wordCount / 100)} palavras)`,
+              duration: 4000
+            });
+          }
+        } else if (!hasScript && itemDuration > 0 && scriptChanged) {
+          // Se o script foi removido, usa velocidade baseada apenas na duração
+          const speedByDuration = calculateSpeedByDuration(itemDuration);
+          if (Math.abs(speedByDuration - presenterConfig.scrollSpeed) > 0.1) {
+            updatePresenterConfig({ scrollSpeed: speedByDuration });
+            toast({
+              title: "⚙️ Velocidade ajustada",
+              description: `Velocidade ajustada para ${speedByDuration.toFixed(2)}x baseada na duração do evento`,
+              duration: 2000
+            });
+          }
+        }
         
         // Sincroniza com outros clientes
         if (rundown?.id) {

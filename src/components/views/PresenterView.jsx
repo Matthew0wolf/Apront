@@ -10,9 +10,11 @@ import { useRundown } from '@/contexts/RundownContext.jsx';
 import { useTimer } from '@/contexts/TimerContext.jsx';
 import { useSync } from '@/contexts/SyncContext.jsx';
 import { usePresenterConfig } from '@/contexts/PresenterConfigContext.jsx';
+import { useTheme } from '@/contexts/ThemeContext.jsx';
 import { useNavigate, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useApi } from '@/hooks/useApi';
+import { websocketManager } from '@/lib/websocket';
 
 const formatTime = (seconds) => {
   const hours = Math.floor(seconds / 3600);
@@ -57,13 +59,15 @@ const TimeDisplay = React.memo(({ time, className }) => {
   return <p className={className}>{formatTime(time)}</p>;
 });
 
-const ProgressBar = ({ progress, remainingTime }) => {
+const ProgressBar = ({ progress, remainingTime, isLightTheme = false }) => {
   let colorClass = 'bg-green-500';
   if (remainingTime <= 30) colorClass = 'bg-yellow-500';
   if (remainingTime <= 10) colorClass = 'bg-red-500';
 
+  const trackColor = isLightTheme ? 'bg-black/10' : 'bg-white/10';
+
   return (
-    <div className="w-full bg-white/10 rounded-full h-4 overflow-hidden">
+    <div className={cn("w-full rounded-full h-4 overflow-hidden", trackColor)}>
       <motion.div
         className={cn("h-4 rounded-full", colorClass)}
         initial={{ width: '0%' }}
@@ -88,6 +92,66 @@ const PresenterView = () => {
   
   // Configurações sincronizadas com operador (apenas leitura)
   const { presenterConfig } = usePresenterConfig();
+  
+  // Tema global da aplicação
+  const { theme } = useTheme();
+  const globalThemeIsLight = theme === 'light';
+  
+  // Calcula o tema baseado na configuração do operador ou tema global
+  const { bgColor, isLightTheme, themeColors } = useMemo(() => {
+    // Se o operador especificou uma cor de fundo, usa ela
+    const operatorBg = presenterConfig?.backgroundColor;
+    
+    // Detecta se a cor especificada pelo operador é clara ou escura
+    let detectedLight = globalThemeIsLight;
+    
+    if (operatorBg && operatorBg !== '#000000' && operatorBg !== '#FFFFFF') {
+      // Se operador especificou uma cor, detecta se é clara
+      const bgLower = String(operatorBg).toLowerCase().trim();
+      let brightness = 0;
+      
+      if (bgLower.startsWith('#')) {
+        const hex = bgLower.slice(1);
+        if (hex.length === 6) {
+          const r = parseInt(hex.slice(0, 2), 16);
+          const g = parseInt(hex.slice(2, 4), 16);
+          const b = parseInt(hex.slice(4, 6), 16);
+          brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        }
+      }
+      
+      detectedLight = brightness > 180;
+    } else if (operatorBg === '#FFFFFF' || operatorBg === 'white') {
+      detectedLight = true;
+    } else if (operatorBg === '#000000' || operatorBg === 'black' || !operatorBg) {
+      // Se não especificado ou preto, usa tema global
+      detectedLight = globalThemeIsLight;
+    }
+    
+    // Determina a cor de fundo final
+    const finalBgColor = operatorBg && operatorBg !== '#000000' && operatorBg !== '#FFFFFF' 
+      ? operatorBg 
+      : (detectedLight ? '#FFFFFF' : '#000000');
+    
+    // Cores baseadas no tema detectado
+    const colors = {
+      bg: finalBgColor,
+      text: detectedLight ? '#000000' : '#FFFFFF',
+      textSecondary: detectedLight ? '#666666' : '#CCCCCC',
+      textTertiary: detectedLight ? '#999999' : '#888888',
+      border: detectedLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)',
+      borderStrong: detectedLight ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.2)',
+      card: detectedLight ? 'rgba(0, 0, 0, 0.03)' : 'rgba(255, 255, 255, 0.05)',
+      cardHover: detectedLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.08)',
+      cardStrong: detectedLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.15)',
+    };
+    
+    return { 
+      bgColor: finalBgColor, 
+      isLightTheme: detectedLight, 
+      themeColors: colors 
+    };
+  }, [presenterConfig?.backgroundColor, globalThemeIsLight]);
 
   const { toast } = useToast();
   const { apiCall } = useApi();
@@ -120,8 +184,17 @@ const PresenterView = () => {
   // Conecta ao rundown via WebSocket quando o componente monta
   useEffect(() => {
     if (projectId) {
-      console.log('🔗 PresenterView: Conectando ao rundown:', projectId);
+      console.log('🔗 PresenterView: Conectando ao rundown via WebSocket:', projectId);
       setActiveRundownId(projectId);
+      
+      // CRÍTICO: Aguarda um pouco e verifica se está conectado e na sala correta
+      const verifyConnection = setTimeout(() => {
+        if (websocketManager.isConnected) {
+          console.log('✅ PresenterView: WebSocket conectado, verificado entrada no rundown:', projectId);
+        } else {
+          console.warn('⚠️ PresenterView: WebSocket não está conectado!');
+        }
+      }, 1000);
       
       // CRÍTICO: Solicita estado atual do timer após conectar
       // Aguarda um pouco para garantir que o WebSocket está conectado
@@ -148,6 +221,7 @@ const PresenterView = () => {
       }, 4000); // Aguarda 4 segundos (terceira tentativa)
       
       return () => {
+        clearTimeout(verifyConnection);
         clearTimeout(requestTimerState1);
         clearTimeout(requestTimerState2);
         clearTimeout(requestTimerState3);
@@ -157,23 +231,118 @@ const PresenterView = () => {
     }
   }, [projectId, setActiveRundownId]);
 
-  const currentItem = useMemo(() => rundown?.items[currentItemIndex.folderIndex]?.children[currentItemIndex.itemIndex], [rundown, currentItemIndex]);
+  // CRÍTICO: Garante que sempre retorna um item válido, mesmo durante reset
+  // Se não encontrar o item atual, tenta o primeiro item (0,0) como fallback
+  const currentItem = useMemo(() => {
+    if (!rundown?.items || !Array.isArray(rundown.items) || rundown.items.length === 0) {
+      return null;
+    }
+    
+    // CRÍTICO: Normaliza currentItemIndex para prevenir erros de estrutura aninhada incorreta
+    let folderIdx = 0;
+    let itemIdx = 0;
+    
+    if (currentItemIndex && typeof currentItemIndex === 'object') {
+      // Verifica se está no formato correto
+      if (typeof currentItemIndex.folderIndex === 'number' && 
+          typeof currentItemIndex.itemIndex === 'number') {
+        folderIdx = Math.max(0, Math.floor(currentItemIndex.folderIndex));
+        itemIdx = Math.max(0, Math.floor(currentItemIndex.itemIndex));
+      }
+      // Verifica se está aninhado incorretamente
+      else if (currentItemIndex.folderIndex && 
+               typeof currentItemIndex.folderIndex === 'object') {
+        const nested = currentItemIndex.folderIndex;
+        if (typeof nested.folderIndex === 'number' && typeof nested.itemIndex === 'number') {
+          console.warn('⚠️ PresenterView: currentItemIndex estava aninhado incorretamente, normalizando...', currentItemIndex);
+          folderIdx = Math.max(0, Math.floor(nested.folderIndex));
+          itemIdx = Math.max(0, Math.floor(nested.itemIndex));
+        }
+      }
+    }
+    
+    // Tenta encontrar o item no índice especificado (usando índices normalizados)
+    const folder = rundown.items[folderIdx];
+    const item = folder?.children?.[itemIdx];
+    
+    if (item) {
+      return item;
+    }
+    
+    // Se não encontrou o item, tenta o primeiro item como fallback
+    // Isso previne tela em branco durante reset ou mudanças de estrutura
+    const firstFolder = rundown.items[0];
+    const firstItem = firstFolder?.children?.[0];
+    
+    if (firstItem) {
+      console.log('⚠️ PresenterView: Item não encontrado no índice atual, usando primeiro item como fallback', {
+        requestedIndex: currentItemIndex,
+        normalizedIndex: { folderIndex: folderIdx, itemIndex: itemIdx },
+        firstItemTitle: firstItem.title,
+        foldersCount: rundown.items.length,
+        folderExists: !!rundown.items[folderIdx]
+      });
+      return firstItem;
+    }
+    
+    // Se não há nenhum item, retorna null
+    return null;
+  }, [rundown, currentItemIndex]);
   
   const flatItems = useMemo(() => {
     if (!rundown?.items || !Array.isArray(rundown.items)) return [];
     return rundown.items.flatMap(f => f.children || []);
   }, [rundown]);
   
+  // CRÍTICO: Normaliza currentItemIndex para cálculos seguros
+  const normalizedIndex = useMemo(() => {
+    if (!currentItemIndex || typeof currentItemIndex !== 'object') {
+      return { folderIndex: 0, itemIndex: 0 };
+    }
+    
+    if (typeof currentItemIndex.folderIndex === 'number' && 
+        typeof currentItemIndex.itemIndex === 'number') {
+      return {
+        folderIndex: Math.max(0, Math.floor(currentItemIndex.folderIndex)),
+        itemIndex: Math.max(0, Math.floor(currentItemIndex.itemIndex))
+      };
+    }
+    
+    if (currentItemIndex.folderIndex && typeof currentItemIndex.folderIndex === 'object') {
+      const nested = currentItemIndex.folderIndex;
+      if (typeof nested.folderIndex === 'number' && typeof nested.itemIndex === 'number') {
+        return {
+          folderIndex: Math.max(0, Math.floor(nested.folderIndex)),
+          itemIndex: Math.max(0, Math.floor(nested.itemIndex))
+        };
+      }
+    }
+    
+    return { folderIndex: 0, itemIndex: 0 };
+  }, [currentItemIndex]);
+  
   const globalCurrentIndex = useMemo(() => {
     if (!rundown) return -1;
-    return rundown.items.slice(0, currentItemIndex.folderIndex).reduce((acc, f) => acc + f.children.length, 0) + currentItemIndex.itemIndex;
-  }, [rundown, currentItemIndex]);
+    const folder = rundown.items[normalizedIndex.folderIndex];
+    if (!folder || !folder.children) return -1;
+    return rundown.items.slice(0, normalizedIndex.folderIndex).reduce((acc, f) => acc + (f.children?.length || 0), 0) + normalizedIndex.itemIndex;
+  }, [rundown, normalizedIndex]);
 
   const itemElapsedTime = useMemo(() => {
-    if (!currentItem || !isRunning) return 0;
-    const previousItemsDuration = rundown.items.slice(0, currentItemIndex.folderIndex).reduce((acc, f) => acc + f.children.reduce((a, i) => a + i.duration, 0), 0) + rundown.items[currentItemIndex.folderIndex].children.slice(0, currentItemIndex.itemIndex).reduce((a, i) => a + i.duration, 0);
-    return timeElapsed - previousItemsDuration;
-  }, [timeElapsed, currentItem, currentItemIndex, rundown, isRunning]);
+    if (!currentItem || !isRunning || !rundown || !rundown.items) return 0;
+    
+    const folder = rundown.items[normalizedIndex.folderIndex];
+    if (!folder || !folder.children) return 0;
+    
+    const previousFoldersDuration = rundown.items.slice(0, normalizedIndex.folderIndex).reduce((acc, f) => {
+      if (!f.children) return acc;
+      return acc + f.children.reduce((a, i) => a + (Number(i.duration) || 0), 0);
+    }, 0);
+    
+    const currentFolderPreviousItemsDuration = folder.children.slice(0, normalizedIndex.itemIndex).reduce((a, i) => a + (Number(i.duration) || 0), 0);
+    
+    return timeElapsed - previousFoldersDuration - currentFolderPreviousItemsDuration;
+  }, [timeElapsed, currentItem, normalizedIndex, rundown, isRunning]);
 
   const remainingTime = useMemo(() => {
     if (!currentItem || !isRunning) return currentItem?.duration || 0;
@@ -954,13 +1123,30 @@ const PresenterView = () => {
 
   return (
     <div 
-      className="min-h-screen text-gray-100 p-3 sm:p-6 flex flex-col font-sans relative"
-      style={{ backgroundColor: presenterConfig.backgroundColor }}
+      className="min-h-screen p-3 sm:p-6 flex flex-col font-sans relative transition-colors duration-300"
+      style={{ 
+        backgroundColor: bgColor,
+        color: themeColors.text
+      }}
     >
+      {/* Overlay com gradiente baseado no tema */}
       {isMounted && (
-        <div className="absolute inset-0 z-0 opacity-20" style={{ backgroundImage: 'radial-gradient(circle at center, #1a202c 0, #000 70%)' }} />
+        <div 
+          className="absolute inset-0 z-0 opacity-20" 
+          style={{ 
+            backgroundImage: isLightTheme 
+              ? 'radial-gradient(circle at center, rgba(0,0,0,0.1) 0, rgba(0,0,0,0.05) 70%)' 
+              : 'radial-gradient(circle at center, #1a202c 0, #000 70%)' 
+          }} 
+        />
       )}
-      <div className="absolute inset-0 z-0 opacity-[0.03]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
+      {/* Padrão de fundo baseado no tema */}
+      <div 
+        className="absolute inset-0 z-0 opacity-[0.03]" 
+        style={{ 
+          backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' 
+        }} 
+      />
       
       <AnimatePresence>
         {flash && (
@@ -975,11 +1161,19 @@ const PresenterView = () => {
         )}
       </AnimatePresence>
 
-      <header className="relative z-10 flex items-center justify-between mb-3 sm:mb-6 flex-shrink-0">
+      <header 
+        className="relative z-10 flex items-center justify-between mb-3 sm:mb-6 flex-shrink-0"
+        style={{ borderBottomColor: themeColors.border }}
+      >
         <Button 
           onClick={() => navigate('/projects')}
           variant="ghost"
-          className="hover:bg-white/10"
+          className="transition-colors"
+          style={{ 
+            color: themeColors.text,
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = themeColors.cardHover}
+          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
           Sair
@@ -988,52 +1182,72 @@ const PresenterView = () => {
           <motion.div 
             className="w-4 h-4 rounded-full"
             animate={{
-              backgroundColor: isRunning ? ['#ff0000', '#ff4d4d', '#ff0000'] : '#4a5568',
-              boxShadow: isRunning ? '0 0 12px #ff0000' : 'none'
+              backgroundColor: isRunning ? ['#ff0000', '#ff4d4d', '#ff0000'] : (isLightTheme ? '#9CA3AF' : '#4a5568'),
+              boxShadow: isRunning ? '0 0 12px rgba(255, 0, 0, 0.8)' : '0 0 0px rgba(0, 0, 0, 0)'
             }}
             transition={isRunning ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
           />
-          <h1 className="text-lg sm:text-2xl font-bold tracking-widest">
+          <h1 
+            className="text-lg sm:text-2xl font-bold tracking-widest"
+            style={{ color: themeColors.text }}
+          >
             {isRunning ? 'AO VIVO' : 'STANDBY'}
           </h1>
           <div className="flex items-center gap-2">
             {isConnected ? (
-              <div className="flex items-center gap-1 text-green-400">
+              <div className="flex items-center gap-1 text-green-500">
                 <Wifi className="w-4 h-4" />
-                <span className="text-sm">Sincronizado</span>
+                <span className="text-sm" style={{ color: themeColors.textSecondary }}>Sincronizado</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1 text-red-400">
+              <div className="flex items-center gap-1 text-red-500">
                 <WifiOff className="w-4 h-4" />
-                <span className="text-sm">Desconectado</span>
+                <span className="text-sm" style={{ color: themeColors.textSecondary }}>Desconectado</span>
               </div>
             )}
           </div>
         </div>
-        <LiveClock />
+        <LiveClock style={{ color: themeColors.textSecondary }} />
       </header>
 
 
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center overflow-y-auto">
         {!rundown ? (
           <div className="text-center">
-            <AlertTriangle className="w-24 h-24 text-yellow-400 mx-auto mb-6" />
-            <h2 className="text-4xl font-bold mb-4">Aguardando Rundown</h2>
-            <p className="text-xl text-gray-400">O operador ainda não iniciou um projeto</p>
+            <AlertTriangle 
+              className="w-24 h-24 mx-auto mb-6" 
+              style={{ color: '#FBBF24' }}
+            />
+            <h2 
+              className="text-4xl font-bold mb-4"
+              style={{ color: themeColors.text }}
+            >
+              Aguardando Rundown
+            </h2>
+            <p 
+              className="text-xl"
+              style={{ color: themeColors.textSecondary }}
+            >
+              O operador ainda não iniciou um projeto
+            </p>
           </div>
         ) : (
           <div className="w-full max-w-6xl space-y-8 py-4">
             <AnimatePresence mode="wait">
-              {currentItem && (
+              {currentItem ? (
                 <motion.div
-                  key={currentItem.id}
+                  key={currentItem.id || `item-${currentItemIndex.folderIndex}-${currentItemIndex.itemIndex}`}
                   initial={{ opacity: 0, y: 30, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -30, scale: 0.95 }}
                   transition={{ duration: 0.5, type: 'spring' }}
-                  className="bg-black/30 backdrop-blur-md border border-white/10 rounded-3xl p-8 text-center relative overflow-hidden"
+                  className="backdrop-blur-md rounded-3xl p-8 text-center relative overflow-hidden"
                   style={{
                     '--item-color': currentItem.color || '#8B5CF6',
+                    backgroundColor: themeColors.cardStrong,
+                    borderColor: themeColors.border,
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
                   }}
                 >
                   <motion.div 
@@ -1050,8 +1264,20 @@ const PresenterView = () => {
                     <UrgencyIndicator urgency={currentItem.urgency} />
                   </div>
                   {getIcon(currentItem, "w-20 h-20 mx-auto mb-4")}
-                  <h2 className="text-4xl sm:text-6xl lg:text-7xl font-bold text-white mb-4">{currentItem.title}</h2>
-                  <p className="text-lg sm:text-xl lg:text-2xl text-gray-300 mb-6 max-w-3xl mx-auto">{currentItem.description}</p>
+                  <h2 
+                    className="text-4xl sm:text-6xl lg:text-7xl font-bold mb-4"
+                    style={{ color: themeColors.text }}
+                  >
+                    {currentItem.title}
+                  </h2>
+                  {currentItem.description && (
+                    <p 
+                      className="text-lg sm:text-xl lg:text-2xl mb-6 max-w-3xl mx-auto"
+                      style={{ color: themeColors.textSecondary }}
+                    >
+                      {currentItem.description}
+                    </p>
+                  )}
                   
                   {currentItem.reminder && (
                     <div className="mb-6 inline-flex items-center gap-2 bg-amber-500/10 text-amber-400 px-4 py-2 rounded-lg">
@@ -1062,7 +1288,15 @@ const PresenterView = () => {
 
                   {/* Script do Apresentador */}
                   {presenterConfig.showScript && currentScript && currentScript.script && (
-                    <div className="mb-6 bg-black/40 rounded-xl border border-white/5">
+                    <div 
+                      className="mb-6 rounded-xl"
+                      style={{
+                        backgroundColor: themeColors.card,
+                        borderColor: themeColors.border,
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                      }}
+                    >
                       {/* Header com indicador de progresso */}
                       <div className="px-6 pt-6 pb-2">
                         <div className="flex items-center justify-between mb-3">
@@ -1080,7 +1314,10 @@ const PresenterView = () => {
                         
                         {/* Barra de progresso de leitura */}
                         {presenterConfig.autoScroll && (
-                          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden mb-4">
+                          <div 
+                            className="w-full rounded-full h-2 overflow-hidden mb-4"
+                            style={{ backgroundColor: isLightTheme ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)' }}
+                          >
                             <motion.div
                               className="h-2 bg-primary rounded-full"
                               initial={{ width: '0%' }}
@@ -1118,12 +1355,25 @@ const PresenterView = () => {
                           }}
                         />
                         {currentScript.presenter_notes && (
-                          <div className="mt-6 pt-4 border-t border-white/10">
-                            <h4 className="text-sm font-bold text-amber-400 mb-2 flex items-center gap-2">
+                          <div 
+                            className="mt-6 pt-4"
+                            style={{ 
+                              borderTopColor: themeColors.border, 
+                              borderTopWidth: '1px', 
+                              borderTopStyle: 'solid' 
+                            }}
+                          >
+                            <h4 
+                              className="text-sm font-bold mb-2 flex items-center gap-2"
+                              style={{ color: '#FBBF24' }}
+                            >
                               <Icons.StickyNote className="w-4 h-4" />
                               Notas Privadas
                             </h4>
-                            <div className="text-sm text-gray-400 whitespace-pre-wrap leading-relaxed">
+                            <div 
+                              className="text-sm whitespace-pre-wrap leading-relaxed"
+                              style={{ color: themeColors.textSecondary }}
+                            >
                               {currentScript.presenter_notes}
                             </div>
                           </div>
@@ -1134,38 +1384,121 @@ const PresenterView = () => {
 
                   <div className="space-y-4">
                     <div className="flex items-center justify-between text-lg font-mono">
-                      <span className="text-gray-400">Progresso</span>
-                      <span className="font-bold text-white">{formatTimeShort(remainingTime)}</span>
+                      <span style={{ color: themeColors.textSecondary }}>Progresso</span>
+                      <span className="font-bold" style={{ color: themeColors.text }}>
+                        {formatTimeShort(remainingTime)}
+                      </span>
                     </div>
-                    <ProgressBar progress={progress} remainingTime={remainingTime} />
+                    <ProgressBar progress={progress} remainingTime={remainingTime} isLightTheme={isLightTheme} />
+                  </div>
+                </motion.div>
+              ) : (
+                /* Tela mostrada quando não há item atual ou quando está parado aguardando operador */
+                <motion.div
+                  key="waiting-operator"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.3 }}
+                  className="backdrop-blur-md rounded-3xl p-8 sm:p-12 text-center relative overflow-hidden"
+                  style={{
+                    backgroundColor: themeColors.cardStrong,
+                    borderColor: themeColors.border,
+                    borderWidth: '1px',
+                    borderStyle: 'solid',
+                  }}
+                >
+                  <div className="flex flex-col items-center justify-center space-y-6">
+                    <div className="w-24 h-24 rounded-full flex items-center justify-center" style={{ backgroundColor: themeColors.card }}>
+                      <Info className="w-12 h-12" style={{ color: themeColors.textSecondary }} />
+                    </div>
+                    <div>
+                      <h2 
+                        className="text-3xl sm:text-4xl font-bold mb-2"
+                        style={{ color: themeColors.text }}
+                      >
+                        Aguardando Operador
+                      </h2>
+                      <p 
+                        className="text-lg sm:text-xl"
+                        style={{ color: themeColors.textSecondary }}
+                      >
+                        O operador ainda não iniciou a transmissão
+                      </p>
+                    </div>
+                    {!isRunning && (
+                      <div 
+                        className="px-4 py-2 rounded-lg"
+                        style={{ 
+                          backgroundColor: themeColors.card,
+                          color: themeColors.textSecondary 
+                        }}
+                      >
+                        <span className="text-sm font-medium">Pronto para iniciar</span>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-4 sm:p-6">
-              <h3 className="text-lg sm:text-xl font-semibold text-white mb-3 sm:mb-4">Próximos Eventos</h3>
+            <div 
+              className="backdrop-blur-sm rounded-xl p-4 sm:p-6"
+              style={{
+                backgroundColor: themeColors.card,
+                borderColor: themeColors.border,
+                borderWidth: '1px',
+                borderStyle: 'solid',
+              }}
+            >
+              <h3 
+                className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4"
+                style={{ color: themeColors.text }}
+              >
+                Próximos Eventos
+              </h3>
               <div className="space-y-2 sm:space-y-3">
                 {flatItems.slice(globalCurrentIndex + 1, globalCurrentIndex + 4).map((item) => (
-                  <div key={item.id} className="flex items-center gap-2 sm:gap-4 p-2 sm:p-3 bg-white/5 rounded-lg" style={{ borderLeft: `4px solid ${item.color || 'transparent'}` }}>
-                    <div className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center text-gray-400 flex-shrink-0">
+                  <div 
+                    key={item.id} 
+                    className="flex items-center gap-2 sm:gap-4 p-2 sm:p-3 rounded-lg transition-colors"
+                    style={{ 
+                      borderLeft: `4px solid ${item.color || 'transparent'}`,
+                      backgroundColor: themeColors.cardHover,
+                    }}
+                  >
+                    <div 
+                      className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center flex-shrink-0"
+                      style={{ color: themeColors.textSecondary }}
+                    >
                       {getIcon(item, "w-4 h-4 sm:w-6 sm:h-6")}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-white text-sm sm:text-base truncate">{item.title}</h4>
+                      <h4 
+                        className="font-medium text-sm sm:text-base truncate"
+                        style={{ color: themeColors.text }}
+                      >
+                        {item.title}
+                      </h4>
                     </div>
                     <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                       <UrgencyIndicator urgency={item.urgency} />
-                      <div className="text-xs sm:text-sm font-mono text-gray-400">
+                      <div 
+                        className="text-xs sm:text-sm font-mono"
+                        style={{ color: themeColors.textSecondary }}
+                      >
                         {formatTimeShort(item.duration)}
                       </div>
                     </div>
                   </div>
                 ))}
-                 {flatItems.length <= globalCurrentIndex + 1 && (
-                    <div className="text-center text-gray-500 p-4">
-                        Não há mais eventos no rundown.
-                    </div>
+                {flatItems.length <= globalCurrentIndex + 1 && (
+                  <div 
+                    className="text-center p-4"
+                    style={{ color: themeColors.textTertiary }}
+                  >
+                    Não há mais eventos no rundown.
+                  </div>
                 )}
               </div>
             </div>

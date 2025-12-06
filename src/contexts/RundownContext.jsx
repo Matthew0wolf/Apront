@@ -111,20 +111,19 @@ export const RundownProvider = ({ children }) => {
 
   // Listeners para sincronização em tempo real via WebSocket
   useEffect(() => {
-    console.log('🔄 RundownContext inicializado');
+    console.log('🔄 RundownContext inicializado', {
+      hasActiveRundown: !!activeRundown,
+      activeRundownId: activeRundown?.id,
+      rundownsCount: rundowns.length,
+      currentPath: typeof window !== 'undefined' ? window.location.pathname : 'N/A'
+    });
 
     // Listener para atualizações de rundown
     const handleRundownSync = (event) => {
       const { rundownId, changes } = event.detail;
       const rundownIdStr = String(rundownId);
-      console.log('📡 RundownContext: Recebida atualização via WebSocket:', { rundownId: rundownIdStr, changes });
-      console.log('📡 RundownContext: activeRundown?.id:', activeRundown?.id);
-      console.log('📡 RundownContext: Comparação:', String(activeRundown?.id), '===', rundownIdStr);
       
-      const isActiveRundown = String(activeRundown?.id) === rundownIdStr;
-      const rundownExists = rundowns.some(r => String(r.id) === rundownIdStr);
-      
-      // CRÍTICO: Verificar se a URL atual corresponde ao rundownId (para sincronização durante carregamento)
+      // CRÍTICO: Verificar se a URL atual corresponde ao rundownId PRIMEIRO
       // Isso permite que o apresentador receba atualizações mesmo antes do rundown estar totalmente carregado
       let urlMatchesRundown = false;
       if (typeof window !== 'undefined') {
@@ -133,16 +132,34 @@ export const RundownProvider = ({ children }) => {
                            currentPath.includes(`/project/${rundownIdStr}`);
       }
       
-      // CRÍTICO: Sempre aplicar mudanças de isRunning e timeElapsed se for o rundown ativo
-      // OU se o rundown existe na lista e não há rundown ativo (está carregando)
-      // OU se a URL corresponde ao rundownId (apresentador/operador na página do projeto)
-      // Isso garante que o apresentador receba o estado correto ao entrar após o evento estar ao vivo
+      const isActiveRundown = String(activeRundown?.id) === rundownIdStr;
+      const rundownExists = rundowns.some(r => String(r.id) === rundownIdStr);
+      
+      console.log('📡 RundownContext: Recebida atualização via WebSocket:', { 
+        rundownId: rundownIdStr, 
+        changes,
+        isActiveRundown,
+        rundownExists,
+        urlMatchesRundown,
+        activeRundownId: activeRundown?.id,
+        currentPath: typeof window !== 'undefined' ? window.location.pathname : 'N/A'
+      });
+      
+      // CRÍTICO: Sempre aplicar mudanças se:
+      // 1. For o rundown ativo OU
+      // 2. A URL corresponde ao rundownId (apresentador/operador na página do projeto) OU
+      // 3. O rundown existe na lista (mesmo que não esteja ativo ainda)
+      // 
+      // PRIORIDADE: urlMatchesRundown é a verificação mais importante porque funciona mesmo
+      // quando o apresentador está aguardando e o rundown ainda não foi totalmente carregado
+      const shouldApplyChanges = isActiveRundown || urlMatchesRundown || rundownExists;
+      
       // CRÍTICO: Sempre aplicar mudanças de isRunning e timeElapsed quando recebidas via WebSocket
-      // Isso garante que quando o operador pausa, o apresentador também pausa
+      // Isso garante que quando o operador pausa/inicia, o apresentador também recebe
       if (changes.isRunning !== undefined) {
-        // CRÍTICO: Sempre aplicar mudanças de isRunning se for o rundown ativo, existe na lista, ou a URL corresponde
+        // CRÍTICO: Sempre aplicar mudanças de isRunning se qualquer uma das condições for verdadeira
         // Não importa se isRunning é true ou false - ambos devem ser sincronizados
-        const shouldApplyTimerState = isActiveRundown || rundownExists || urlMatchesRundown;
+        const shouldApplyTimerState = shouldApplyChanges;
         
         if (shouldApplyTimerState) {
           console.log('✅ RundownContext: Atualizando isRunning via WebSocket:', changes.isRunning, {
@@ -211,20 +228,97 @@ export const RundownProvider = ({ children }) => {
         }
       }
       
-      // Aplica outras mudanças apenas se for o rundown ativo
-      if (isActiveRundown) {
-        console.log('✅ RundownContext: Aplicando mudanças ao rundown ativo');
-        // Aplica as mudanças ao rundown ativo
+      // Aplica outras mudanças (currentItemIndex, items, etc.) se qualquer condição for verdadeira
+      // CRÍTICO: urlMatchesRundown é verificado primeiro porque funciona mesmo quando activeRundown é null
+      if (shouldApplyChanges) {
+        console.log('✅ RundownContext: Aplicando mudanças ao rundown', {
+          isActiveRundown,
+          urlMatchesRundown,
+          rundownExists,
+          rundownId: rundownIdStr
+        });
+        
+        // CRÍTICO: Atualizar currentItemIndex quando fornecido (incluindo reset para início)
         if (changes.currentItemIndex) {
           console.log('✅ RundownContext: Atualizando currentItemIndex:', changes.currentItemIndex);
-          setCurrentItemIndex(changes.currentItemIndex);
-          const newElapsedTime = calculateElapsedTimeForIndex(
-            changes.currentItemIndex.folderIndex, 
-            changes.currentItemIndex.itemIndex, 
-            activeRundown.items
-          );
-          setTimeElapsed(newElapsedTime);
-          console.log('✅ RundownContext: currentItemIndex atualizado e timeElapsed:', newElapsedTime);
+          
+          // CRÍTICO: Normaliza o currentItemIndex para garantir estrutura correta
+          // Pode vir como objeto aninhado incorreto em alguns casos
+          let normalizedIndex = null;
+          
+          if (typeof changes.currentItemIndex === 'object') {
+            // Verifica se está no formato correto { folderIndex: number, itemIndex: number }
+            if (typeof changes.currentItemIndex.folderIndex === 'number' && 
+                typeof changes.currentItemIndex.itemIndex === 'number') {
+              normalizedIndex = {
+                folderIndex: changes.currentItemIndex.folderIndex,
+                itemIndex: changes.currentItemIndex.itemIndex
+              };
+            } 
+            // Verifica se está aninhado incorretamente (ex: { folderIndex: { folderIndex: 0, itemIndex: 0 } })
+            else if (changes.currentItemIndex.folderIndex && 
+                     typeof changes.currentItemIndex.folderIndex === 'object') {
+              const nested = changes.currentItemIndex.folderIndex;
+              if (typeof nested.folderIndex === 'number' && typeof nested.itemIndex === 'number') {
+                console.warn('⚠️ RundownContext: currentItemIndex estava aninhado incorretamente, normalizando...', {
+                  original: changes.currentItemIndex,
+                  normalized: nested
+                });
+                normalizedIndex = {
+                  folderIndex: nested.folderIndex,
+                  itemIndex: nested.itemIndex
+                };
+              }
+            }
+          }
+          
+          // Se não conseguiu normalizar, usa valores padrão seguros
+          if (!normalizedIndex) {
+            console.error('❌ RundownContext: currentItemIndex inválido, usando valores padrão (0,0):', changes.currentItemIndex);
+            normalizedIndex = { folderIndex: 0, itemIndex: 0 };
+          }
+          
+          // Se o itemIndex for 0,0 e timeElapsed for 0, é um reset
+          const isReset = normalizedIndex.folderIndex === 0 && 
+                         normalizedIndex.itemIndex === 0 &&
+                         (changes.timeElapsed === 0 || changes.timeElapsed === undefined);
+          
+          // CRÍTICO: Atualiza o índice ANTES do tempo para garantir que o item seja encontrado
+          setCurrentItemIndex(normalizedIndex);
+          
+          if (isReset) {
+            console.log('🔄 RundownContext: Detectado RESET - voltando ao início');
+            // Para reset, sempre usa 0 como tempo
+            setTimeElapsed(0);
+          } else {
+            // Mudança normal de item
+            // Se timeElapsed foi fornecido explicitamente, usa ele
+            // Caso contrário, calcula baseado no índice
+            if (changes.timeElapsed !== undefined) {
+              setTimeElapsed(changes.timeElapsed);
+            } else if (activeRundown?.items) {
+              const newElapsedTime = calculateElapsedTimeForIndex(
+                changes.currentItemIndex.folderIndex, 
+                changes.currentItemIndex.itemIndex, 
+                activeRundown.items
+              );
+              setTimeElapsed(newElapsedTime);
+            }
+          }
+          
+          console.log('✅ RundownContext: currentItemIndex atualizado:', {
+            folderIndex: changes.currentItemIndex.folderIndex,
+            itemIndex: changes.currentItemIndex.itemIndex,
+            timeElapsed: changes.timeElapsed !== undefined ? changes.timeElapsed : (isReset ? 0 : 'calculado'),
+            isReset
+          });
+        } else if (changes.timeElapsed !== undefined && changes.timeElapsed === 0 && !changes.isRunning) {
+          // CRÍTICO: Se timeElapsed for 0 e isRunning for false, pode ser um reset
+          // Nesse caso, também reseta o currentItemIndex para o início
+          console.log('🔄 RundownContext: Detectado RESET pelo timeElapsed=0 e isRunning=false');
+          // CRÍTICO: Atualiza o índice ANTES do tempo
+          setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
+          setTimeElapsed(0);
         }
         
         // Sincroniza mudanças na estrutura do rundown (adicionar/remover itens)
@@ -297,15 +391,43 @@ export const RundownProvider = ({ children }) => {
       window.removeEventListener('folderReordered', handleFolderReordered);
       window.removeEventListener('rundownItemsUpdated', handleRundownItemsUpdated);
     };
-  }, [activeRundown, calculateElapsedTimeForIndex, setTimeElapsed, setIsTimerRunning]);
+  }, [activeRundown, rundowns, calculateElapsedTimeForIndex, setTimeElapsed, setIsTimerRunning]);
 
   // Funções de sincronização - declaradas antes de serem usadas
   const syncCurrentItemChange = useCallback((newItemIndex) => {
     console.log('🔄 RundownContext: Sincronizando mudança de item:', newItemIndex);
     console.log('🔄 RundownContext: activeRundown?.id:', activeRundown?.id);
     if (activeRundown?.id) {
-      // Sincroniza mudança de item atual via WebSocket
-      const changes = { currentItemIndex: newItemIndex };
+      // CRÍTICO: Normaliza o newItemIndex para garantir estrutura correta antes de enviar
+      let normalizedItemIndex = { folderIndex: 0, itemIndex: 0 };
+      
+      if (newItemIndex && typeof newItemIndex === 'object') {
+        // Se já está no formato correto
+        if (typeof newItemIndex.folderIndex === 'number' && 
+            typeof newItemIndex.itemIndex === 'number') {
+          normalizedItemIndex = {
+            folderIndex: newItemIndex.folderIndex,
+            itemIndex: newItemIndex.itemIndex
+          };
+        }
+        // Se está aninhado incorretamente, extrai o objeto interno
+        else if (newItemIndex.folderIndex && typeof newItemIndex.folderIndex === 'object') {
+          const nested = newItemIndex.folderIndex;
+          if (typeof nested.folderIndex === 'number' && typeof nested.itemIndex === 'number') {
+            console.warn('⚠️ syncCurrentItemChange: newItemIndex estava aninhado incorretamente, normalizando antes de enviar...', {
+              original: newItemIndex,
+              normalized: nested
+            });
+            normalizedItemIndex = {
+              folderIndex: nested.folderIndex,
+              itemIndex: nested.itemIndex
+            };
+          }
+        }
+      }
+      
+      // Sincroniza mudança de item atual via WebSocket (garantindo estrutura correta)
+      const changes = { currentItemIndex: normalizedItemIndex };
       console.log('🔄 RundownContext: Enviando syncRundownUpdate com:', { rundownId: activeRundown.id, changes });
       syncRundownUpdate(activeRundown.id, changes);
     } else {
@@ -348,10 +470,30 @@ export const RundownProvider = ({ children }) => {
     if (nextFolderIndex < rundown.items.length && rundown.items[nextFolderIndex]?.children.length > 0) {
       handleSetCurrentItem(nextFolderIndex, nextItemIndex);
     } else {
-      toast({ title: "🏁 Fim do Rundown" });
+      // CRÍTICO: Quando acaba o rundown, reseta automaticamente para o início
+      // Mesmo comportamento como se tivesse clicado em "Parar/Resetar"
+      console.log('🏁 Fim do Rundown detectado - Resetando automaticamente para o início');
+      
+      // Para o timer
       setIsTimerRunning(false);
+      
+      // Reseta para o início (primeiro item)
+      setCurrentItemIndex({ folderIndex: 0, itemIndex: 0 });
+      setTimeElapsed(0);
+      
+      // Sincroniza o reset com outros clientes (operador e apresentador)
+      if (activeRundown?.id) {
+        syncTimerState(false, 0, { folderIndex: 0, itemIndex: 0 }, String(activeRundown.id));
+        syncCurrentItemChange({ folderIndex: 0, itemIndex: 0 });
+      }
+      
+      toast({ 
+        title: "🏁 Fim do Rundown", 
+        description: "Rundown finalizado. Voltando ao início...",
+        duration: 3000
+      });
     }
-  }, [handleSetCurrentItem, toast, setIsTimerRunning]);
+  }, [handleSetCurrentItem, toast, setIsTimerRunning, setCurrentItemIndex, setTimeElapsed, activeRundown?.id, syncTimerState, syncCurrentItemChange]);
 
   const loadRundownState = useCallback(async (rundownId) => {
     // Converte rundownId para string para comparação

@@ -106,16 +106,44 @@ class WebSocketManager {
 
   joinRundown(rundownId) {
     if (this.socket && this.isConnected) {
-      console.log('🚪 Entrando no rundown:', rundownId);
+      console.log('🚪 WebSocketManager: Entrando no rundown:', rundownId);
       this.socket.emit('join_rundown', { rundown_id: rundownId });
+      
+      // Confirma após um delay
+      this.socket.once('joined_rundown', (data) => {
+        console.log('✅ WebSocketManager: Confirmado entrada no rundown:', data);
+      });
     } else {
-      console.warn('⚠️ WebSocket não conectado. Não é possível entrar no rundown.');
+      console.warn('⚠️ WebSocketManager: WebSocket não conectado. Não é possível entrar no rundown.', {
+        hasSocket: !!this.socket,
+        isConnected: this.isConnected
+      });
+      
+      // CRÍTICO: Se não estiver conectado, tenta conectar e depois entrar
+      if (!this.isConnected && !this.socket) {
+        console.log('🔄 WebSocketManager: Tentando conectar...');
+        this.connect();
+        
+        // Aguarda conexão e tenta entrar novamente
+        const checkConnection = setInterval(() => {
+          if (this.isConnected && this.socket) {
+            clearInterval(checkConnection);
+            console.log('✅ WebSocketManager: Conectado, entrando no rundown:', rundownId);
+            this.socket.emit('join_rundown', { rundown_id: rundownId });
+          }
+        }, 500);
+        
+        // Timeout de segurança
+        setTimeout(() => {
+          clearInterval(checkConnection);
+        }, 5000);
+      }
     }
   }
 
   leaveRundown(rundownId) {
-    if (this.socket && this.isConnected) {
-      console.log('🚪 Saindo do rundown:', rundownId);
+    if (this.socket && this.isConnected && rundownId) {
+      console.log('🚪 WebSocketManager: Saindo do rundown:', rundownId);
       this.socket.emit('leave_rundown', { rundown_id: rundownId });
     }
   }
@@ -185,20 +213,6 @@ class WebSocketManager {
     }));
   }
 
-  // Métodos para gerenciar salas
-  joinRundown(rundownId) {
-    if (this.socket && this.isConnected) {
-      this.socket.emit('join_rundown', { rundown_id: rundownId });
-      console.log('📡 Entrando no rundown:', rundownId);
-    }
-  }
-
-  leaveRundown(rundownId) {
-    if (this.socket && this.isConnected) {
-      this.socket.emit('leave_rundown', { rundown_id: rundownId });
-      console.log('📡 Saindo do rundown:', rundownId);
-    }
-  }
 
   joinCompany(companyId) {
     if (this.socket && this.isConnected) {

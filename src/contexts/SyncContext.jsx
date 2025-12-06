@@ -60,10 +60,23 @@ export const SyncProvider = ({ children }) => {
   useEffect(() => {
     // Gerencia entrada/saída de rundowns
     if (activeRundownId) {
+      console.log('📡 SyncContext: Entrando no rundown via WebSocket:', activeRundownId);
       websocketManager.joinRundown(activeRundownId);
+      
+      // CRÍTICO: Aguarda um pouco e verifica se realmente entrou na sala
+      setTimeout(() => {
+        if (websocketManager.isConnected) {
+          console.log('✅ SyncContext: Verificando se está na sala do rundown:', activeRundownId);
+        } else {
+          console.warn('⚠️ SyncContext: WebSocket não está conectado ao tentar entrar no rundown');
+        }
+      }, 500);
     } else {
+      console.log('📡 SyncContext: Saindo do rundown via WebSocket');
       // Sai do rundown anterior se houver
-      websocketManager.leaveRundown(activeRundownId);
+      if (activeRundownId) {
+        websocketManager.leaveRundown(activeRundownId);
+      }
     }
   }, [activeRundownId]);
 
@@ -411,10 +424,39 @@ export const SyncProvider = ({ children }) => {
       return;
     }
     
+    // CRÍTICO: Normaliza o currentItemIndex para garantir estrutura correta antes de enviar
+    let normalizedItemIndex = { folderIndex: 0, itemIndex: 0 };
+    
+    if (currentItemIndex && typeof currentItemIndex === 'object') {
+      // Se já está no formato correto
+      if (typeof currentItemIndex.folderIndex === 'number' && 
+          typeof currentItemIndex.itemIndex === 'number') {
+        normalizedItemIndex = {
+          folderIndex: currentItemIndex.folderIndex,
+          itemIndex: currentItemIndex.itemIndex
+        };
+      }
+      // Se está aninhado incorretamente, extrai o objeto interno
+      else if (currentItemIndex.folderIndex && typeof currentItemIndex.folderIndex === 'object') {
+        const nested = currentItemIndex.folderIndex;
+        if (typeof nested.folderIndex === 'number' && typeof nested.itemIndex === 'number') {
+          console.warn('⚠️ syncTimerState: currentItemIndex estava aninhado incorretamente, normalizando antes de enviar...', {
+            original: currentItemIndex,
+            normalized: nested
+          });
+          normalizedItemIndex = {
+            folderIndex: nested.folderIndex,
+            itemIndex: nested.itemIndex
+          };
+        }
+      }
+    }
+    
     console.log('🔄 Sincronizando estado do timer (WebSocket + Backend):', { 
       isRunning, 
       timeElapsed, 
-      currentItemIndex,
+      originalIndex: currentItemIndex,
+      normalizedIndex: normalizedItemIndex,
       rundownId: targetRundownId
     });
     
@@ -429,7 +471,7 @@ export const SyncProvider = ({ children }) => {
         body: JSON.stringify({
           isRunning,
           timeElapsed,
-          currentItemIndex
+          currentItemIndex: normalizedItemIndex
         })
       });
       
@@ -443,29 +485,32 @@ export const SyncProvider = ({ children }) => {
       // Continua mesmo se falhar - ainda sincroniza via WebSocket
     }
     
-    // Dispara evento imediatamente para o mesmo cliente
+    // Dispara evento imediatamente para o mesmo cliente (usando índice normalizado)
     window.dispatchEvent(new CustomEvent('rundownSync', { 
       detail: { 
         rundownId: targetRundownId,
         changes: {
           isRunning,
           timeElapsed,
-          currentItemIndex
+          currentItemIndex: normalizedItemIndex
         }
       } 
     }));
 
-    // Envia via WebSocket para outros clientes
+    // Envia via WebSocket para outros clientes (usando índice normalizado)
     if (websocketManager.isConnected) {
       websocketManager.socket.emit('rundown_updated', {
         rundown_id: targetRundownId,
         changes: {
           isRunning,
           timeElapsed,
-          currentItemIndex
+          currentItemIndex: normalizedItemIndex
         }
       });
-      console.log('📡 Estado do timer enviado via WebSocket para outros clientes:', targetRundownId);
+      console.log('📡 Estado do timer enviado via WebSocket para outros clientes:', {
+        rundownId: targetRundownId,
+        currentItemIndex: normalizedItemIndex
+      });
     } else {
       console.warn('⚠️ WebSocket não conectado. Estado do timer não será sincronizado com outros clientes.');
     }

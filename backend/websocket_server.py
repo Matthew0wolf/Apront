@@ -48,8 +48,11 @@ def handle_disconnect():
 def handle_join_rundown(data):
     rundown_id = data.get('rundown_id')
     if rundown_id:
-        join_room(f'rundown_{rundown_id}')
-        print(f'Cliente {request.sid} entrou no rundown {rundown_id}')
+        room_name = f'rundown_{rundown_id}'
+        join_room(room_name)
+        print(f'✅ Cliente {request.sid} entrou no rundown {rundown_id} (sala: {room_name})')
+        # Confirma entrada para o cliente
+        emit('joined_rundown', {'rundown_id': rundown_id, 'room': room_name})
 
 @socketio.on('join_company')
 def handle_join_company(data):
