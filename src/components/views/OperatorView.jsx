@@ -285,24 +285,58 @@ const OperatorView = () => {
               navigate(`/project/${projectId}/select-role`);
             }
           }, 1000);
+        } else {
+          // CRÍTICO: Após carregar o rundown, envia o estado atual do timer
+          // Isso garante que apresentadores já conectados recebam o estado
+          setTimeout(() => {
+            console.log('📡 OperatorView: Rundown carregado, enviando estado atual do timer para apresentadores...', {
+              isRunning,
+              timeElapsed,
+              currentItemIndex,
+              projectId
+            });
+            syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
+          }, 500); // Pequeno delay para garantir que o rundown foi totalmente carregado
         }
       }
     };
     loadRundown();
-  }, [projectId, rundown?.id, loadRundownState, navigate, toast]);
+  }, [projectId, rundown?.id, loadRundownState, navigate, toast, isRunning, timeElapsed, currentItemIndex, syncTimerState]);
 
   // Conecta ao rundown via WebSocket quando o componente monta
   useEffect(() => {
     if (projectId) {
       console.log('🔗 OperatorView: Conectando ao rundown:', projectId);
       setActiveRundownId(projectId);
+      
+      // CRÍTICO: Quando o operador conecta, envia o estado atual do timer para todos os apresentadores
+      // Isso garante que apresentadores já conectados recebam o estado atualizado
+      // Aguarda um pouco para garantir que o WebSocket está conectado e o rundown está carregado
+      const sendCurrentStateTimeout = setTimeout(() => {
+        if (rundown && rundown.id) {
+          console.log('📡 OperatorView: Enviando estado atual do timer ao conectar (para apresentadores já conectados)...', {
+            isRunning,
+            timeElapsed,
+            currentItemIndex,
+            projectId
+          });
+          // Envia o estado atual do timer para sincronizar com apresentadores já conectados
+          syncTimerState(isRunning, timeElapsed, currentItemIndex, projectId);
+        }
+      }, 1000); // Aguarda 1s para garantir que tudo está carregado
+      
+      return () => {
+        clearTimeout(sendCurrentStateTimeout);
+        console.log('🔗 OperatorView: Desconectando do rundown:', projectId);
+        setActiveRundownId(null);
+      };
     }
     
     return () => {
       console.log('🔗 OperatorView: Desconectando do rundown:', projectId);
       setActiveRundownId(null);
     };
-  }, [projectId, setActiveRundownId]);
+  }, [projectId, setActiveRundownId, rundown, isRunning, timeElapsed, currentItemIndex, syncTimerState]);
 
   // CRÍTICO: Responde quando apresentador solicita estado do timer
   // REMOVIDO: Envio múltiplo (3x) estava causando resets do timer
