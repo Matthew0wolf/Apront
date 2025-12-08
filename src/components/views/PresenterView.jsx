@@ -589,6 +589,8 @@ const PresenterView = () => {
         };
         setCurrentScript(localScript);
         console.log('✅ PresenterView: Script atualizado automaticamente do rundown (tempo real)');
+        // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
+        // O scroll só deve ser resetado quando o item muda (feito no useEffect acima)
       }
     }
   }, [rundown?.items, currentItem?.id, currentScript]);
@@ -634,9 +636,12 @@ const PresenterView = () => {
             };
             setCurrentScript(localScript);
             console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)');
+            // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
+            // O scroll só deve ser resetado quando o item muda
           }
           
           // Também tenta recarregar do banco (se o item existir lá)
+          // Mas não reseta o scroll durante o carregamento
           loadScript(currentItem.id);
         }
       }
@@ -679,6 +684,8 @@ const PresenterView = () => {
             };
             setCurrentScript(localScript);
             console.log('✅ PresenterView: Script atualizado do rundown (tempo real)');
+            // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
+            // O scroll só deve ser resetado quando o item muda
           }
         }
       }
@@ -1194,16 +1201,36 @@ const PresenterView = () => {
           }, [presenterConfig.autoScroll, presenterConfig.scrollSpeed, presenterConfig.scrollLoop, presenterConfig.scrollStartPosition, presenterConfig.showScript, currentItem, isRunning, currentScript]);
 
   // Reset scroll ao mudar de item (único momento que realmente reseta)
+  // CRÍTICO: Usa currentItem?.id para garantir que só reseta quando o item realmente muda
+  // Não reseta quando apenas o script é atualizado (currentScript muda)
+  const previousItemIdRef = useRef(null);
   useEffect(() => {
-    if (scriptContainerRef.current) {
-      console.log('🔄 Auto-scroll: Resetando ao mudar de item');
+    const currentItemId = currentItem?.id;
+    const previousItemId = previousItemIdRef.current;
+    
+    // Só reseta se o item realmente mudou (não apenas se o script foi atualizado)
+    if (currentItemId && currentItemId !== previousItemId && scriptContainerRef.current) {
+      console.log('🔄 Auto-scroll: Resetando ao mudar de item', { 
+        previousItemId, 
+        currentItemId,
+        currentItemTitle: currentItem?.title 
+      });
       scriptContainerRef.current.scrollTop = 0;
       accumulatedScroll.current = 0; // Reseta acumulador
       savedScrollPosition.current = 0; // Reseta posição salva
       setScrollProgress(0);
       lastTsRef.current = 0; // Reseta timestamp para reiniciar cálculo
+      previousItemIdRef.current = currentItemId; // Atualiza referência
+    } else if (currentItemId && currentItemId === previousItemId) {
+      // Item não mudou, apenas o script pode ter sido atualizado
+      // NÃO reseta o scroll - mantém a posição atual
+      console.log('📝 Auto-scroll: Item não mudou, mantendo posição do scroll', { 
+        currentItemId,
+        scrollTop: scriptContainerRef.current?.scrollTop,
+        scrollProgress 
+      });
     }
-  }, [currentItem]);
+  }, [currentItem?.id, currentItem?.title]);
 
   // Pausa breve ao entrar/sair de fullscreen
   useEffect(() => {

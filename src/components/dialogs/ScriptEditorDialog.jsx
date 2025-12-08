@@ -57,6 +57,17 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
   const last401404TimeRef = useRef(0); // Ref para rastrear quando ocorreu o último erro 401/404
   const isLoadingRef = useRef(false); // Ref para indicar que está carregando dados (evita auto-save durante carregamento)
 
+  // Variáveis globais para rastrear erros 401/404 em PUT /api/items/{id}/script
+  // Isso persiste mesmo quando o componente é desmontado e remontado
+  if (typeof window !== 'undefined' && !window.__scriptPutErrorTracker) {
+    window.__scriptPutErrorTracker = {
+      consecutive401404: 0,
+      last401404Time: 0,
+      max401404Errors: 2,
+      cooldownPeriod: 300000 // 5 minutos
+    };
+  }
+
   // Função para salvar imediatamente (sem debounce) - usada quando o usuário clica em salvar ou fecha
   const saveImmediately = useCallback(async (dataToSave, silent = true) => {
     // CRÍTICO: Evita múltiplas requisições simultâneas
@@ -106,11 +117,11 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
 
     // CRÍTICO: Se houver muitos erros 401/404 consecutivos, desabilita PUT completamente
     // e usa apenas PATCH rundown (que já está funcionando)
-    const max401404Errors = 2; // Após 2 erros, desabilita PUT
-    const timeSinceLast401404 = now - last401404TimeRef.current;
-    const cooldownPeriod = 300000; // 5 minutos de cooldown
+    // Usa variável global para persistir entre montagens/desmontagens do componente
+    const tracker = window.__scriptPutErrorTracker;
+    const timeSinceLast401404 = now - tracker.last401404Time;
     
-    if (consecutive401404Ref.current >= max401404Errors && timeSinceLast401404 < cooldownPeriod) {
+    if (tracker.consecutive401404 >= tracker.max401404Errors && timeSinceLast401404 < tracker.cooldownPeriod) {
       // PUT desabilitado - já salvou via PATCH rundown, então retorna sucesso silenciosamente
       lastSavedDataRef.current = JSON.stringify(dataToSave);
       setSaveStatus('saved');
@@ -141,8 +152,12 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         lastSavedDataRef.current = JSON.stringify(dataToSave);
         consecutiveErrorsRef.current = 0; // Reset contador de erros
         lastErrorTimeRef.current = 0; // Reset tempo do último erro
-        consecutive401404Ref.current = 0; // Reset contador de erros 401/404
-        last401404TimeRef.current = 0; // Reset tempo do último erro 401/404
+        consecutive401404Ref.current = 0; // Reset contador de erros 401/404 local
+        last401404TimeRef.current = 0; // Reset tempo do último erro 401/404 local
+        // Reset contador global também
+        const tracker = window.__scriptPutErrorTracker;
+        tracker.consecutive401404 = 0;
+        tracker.last401404Time = 0;
         
         // Notifica outros clientes via WebSocket
         window.dispatchEvent(new CustomEvent('scriptUpdated', {
@@ -176,15 +191,15 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         // Se 404 ou 401, o item pode não existir no banco ainda ou token inválido
         // Mas já salvou via PATCH rundown, então não é problema
         if (response.status === 404 || response.status === 401) {
+          // Atualiza contadores locais e globais
           consecutive401404Ref.current += 1;
           last401404TimeRef.current = Date.now();
-          
-          // Só loga se for o primeiro erro (para debug), depois suprime
-          if (consecutive401404Ref.current <= max401404Errors) {
-            // Não loga mais - já salvou via PATCH rundown, então não é um erro real
-          }
+          const tracker = window.__scriptPutErrorTracker;
+          tracker.consecutive401404 += 1;
+          tracker.last401404Time = Date.now();
           
           // Já salvou via onSave (PATCH rundown), então retorna sucesso silenciosamente
+          // Não loga nada - já salvou via PATCH rundown, então não é um erro real
           lastSavedDataRef.current = JSON.stringify(dataToSave);
           window.dispatchEvent(new CustomEvent('scriptUpdated', {
             detail: { itemId: item.id }
@@ -303,7 +318,12 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         }
         
         // SEGUNDO: Tenta carregar do banco de dados (apenas se não houver dados locais ou se isDirty for false)
-        if (!isDirty) {
+        // CRÍTICO: Se já temos dados locais completos, não precisa carregar do banco
+        // Isso evita requisições 404 desnecessárias
+        const hasLocalData = item?.script !== undefined || item?.talking_points !== undefined || 
+                            item?.pronunciation_guide !== undefined || item?.presenter_notes !== undefined;
+        
+        if (!isDirty && !hasLocalData) {
           const response = await apiCall(`/api/items/${item.id}/script`);
           
           if (response.ok) {
@@ -323,13 +343,9 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
               setScriptData(loadedData);
               lastSavedDataRef.current = loadedDataStr;
             }
-          } else if (response.status === 404) {
-            // Item não encontrado no banco - usa dados locais se disponíveis
-            console.log('⚠️ Item não encontrado no banco (404), usando dados locais se disponíveis:', item.id);
-            // Os dados locais já foram carregados acima, então não faz nada
-          } else if (response.status === 401) {
-            // Token expirado - useApi já tentou fazer refresh, mas se ainda falhou, usa dados locais
-            console.log('⚠️ Erro de autenticação (401) ao carregar script, usando dados locais se disponíveis:', item.id);
+          } else if (response.status === 404 || response.status === 401) {
+            // Item não encontrado no banco ou token inválido - usa dados locais se disponíveis
+            // Não loga para não poluir o console (já temos dados locais ou o item é temporário)
             // Os dados locais já foram carregados acima, então não faz nada
           }
         }
