@@ -538,122 +538,71 @@ const PresenterView = () => {
   }, [apiCall, rundown]);
 
   // Carregar script do item atual quando o item muda
+  // CRÍTICO: Remove loadScript das dependências para evitar recarregamentos desnecessários
+  // quando loadScript é recriado (por exemplo, quando rundown muda)
+  const currentItemIdRef = useRef(null);
   useEffect(() => {
-    if (currentItem?.id) {
-      loadScript(currentItem.id);
-    } else {
+    const currentItemId = currentItem?.id;
+    const previousItemId = currentItemIdRef.current;
+    
+    // Só carrega se o item realmente mudou
+    if (currentItemId && currentItemId !== previousItemId) {
+      currentItemIdRef.current = currentItemId;
+      loadScript(currentItemId);
+    } else if (!currentItemId) {
+      currentItemIdRef.current = null;
       setCurrentScript(null);
     }
-  }, [currentItem?.id, loadScript]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentItem?.id]); // Intencionalmente não inclui loadScript nas dependências
 
-  // CRÍTICO: Monitora mudanças no rundown para atualizar script em tempo real
-  // Isso garante que quando o operador salva um script, o apresentador vê imediatamente
-  // IMPORTANTE: Só atualiza se o script do item ATUAL realmente mudou
-  // Não atualiza quando outros itens são modificados (reordenação, scripts de outros itens, etc.)
-  const previousScriptRef = useRef(null); // Ref para rastrear o script anterior do item atual
-  useEffect(() => {
-    if (!rundown?.items || !currentItem?.id) return;
-    
-    // Busca o item atual no rundown
-    let updatedItem = null;
-    for (const folder of rundown.items) {
-      if (folder.children) {
-        updatedItem = folder.children.find(item => String(item.id) === String(currentItem.id));
-        if (updatedItem) break;
-      }
-    }
-    
-    // CRÍTICO: Só processa se encontrou o item atual
-    if (!updatedItem) {
-      // Item atual não encontrado no rundown - pode ser temporário ou foi removido
-      // Não faz nada para evitar resetar o script incorretamente
-      return;
-    }
-    
-    // CRÍTICO: Só atualiza se o script do item atual realmente mudou
-    // Compara com o script anterior do item atual (não com o script atual do estado)
-    const newScriptText = updatedItem.script || '';
-    const newTalkingPoints = Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
-                            (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []);
-    const newPronunciationGuide = updatedItem.pronunciation_guide || '';
-    const newPresenterNotes = updatedItem.presenter_notes || '';
-    
-    // Cria uma representação do script atual do item no rundown
-    const currentItemScript = {
-      id: updatedItem.id,
-      script: newScriptText,
-      talking_points: newTalkingPoints,
-      pronunciation_guide: newPronunciationGuide,
-      presenter_notes: newPresenterNotes
-    };
-    
-    // Compara com o script anterior do item atual
-    const previousScript = previousScriptRef.current;
-    const scriptChanged = !previousScript || 
-                         previousScript.id !== currentItemScript.id ||
-                         previousScript.script !== currentItemScript.script ||
-                         JSON.stringify(previousScript.talking_points || []) !== JSON.stringify(currentItemScript.talking_points || []) ||
-                         previousScript.pronunciation_guide !== currentItemScript.pronunciation_guide ||
-                         previousScript.presenter_notes !== currentItemScript.presenter_notes;
-    
-    // CRÍTICO: Só atualiza se o script do item atual realmente mudou
-    if (scriptChanged) {
-      const localScript = {
-        id: currentItemScript.id,
-        script: currentItemScript.script,
-        talking_points: currentItemScript.talking_points,
-        pronunciation_guide: currentItemScript.pronunciation_guide,
-        presenter_notes: currentItemScript.presenter_notes
-      };
-      setCurrentScript(localScript);
-      previousScriptRef.current = { ...currentItemScript }; // Atualiza referência
-      console.log('✅ PresenterView: Script atualizado automaticamente do rundown (tempo real)', {
-        itemId: currentItem.id,
-        scriptLength: currentItemScript.script.length
-      });
-      // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
-      // O scroll só deve ser resetado quando o item muda (feito no useEffect acima)
-    }
-  }, [rundown?.items, currentItem?.id]);
-  
-  // CRÍTICO: Reseta a referência do script anterior quando o item muda
-  useEffect(() => {
-    if (currentItem?.id) {
-      // Reseta a referência quando o item muda
-      previousScriptRef.current = null;
-    }
-  }, [currentItem?.id]);
+  // CRÍTICO: DESABILITADO - Este useEffect estava causando resets incorretos do script
+  // quando outros itens eram modificados. Agora confiamos apenas no evento 'rundownSync'
+  // que já filtra corretamente apenas mudanças do item atual.
+  // 
+  // O script é atualizado via:
+  // 1. loadScript() quando o item muda (useEffect acima)
+  // 2. handleRundownSync() quando recebe evento WebSocket específico do item atual
+  // 3. handleScriptUpdated() quando recebe evento específico de atualização de script
 
   // Listener para detectar quando o script foi atualizado via sincronização
+  // CRÍTICO: Este é o ÚNICO lugar que deve atualizar o script quando outros itens são modificados
+  // Ele filtra corretamente apenas mudanças do item atual
+  const currentItemIdForSyncRef = useRef(null);
+  useEffect(() => {
+    // Atualiza a ref quando o item muda
+    currentItemIdForSyncRef.current = currentItem?.id;
+  }, [currentItem?.id]);
+  
   useEffect(() => {
     const handleRundownSync = (event) => {
       const { rundownId, changes } = event.detail;
+      const currentItemId = currentItemIdForSyncRef.current;
       
-      // Verifica se é o rundown atual
-      if (!currentItem?.id || !rundown?.id || String(rundown.id) !== String(rundownId)) {
+      // Verifica se é o rundown atual E se há um item atual
+      if (!currentItemId || !rundown?.id || String(rundown.id) !== String(rundownId)) {
         return;
       }
       
       // Verifica se há mudanças nos items
       if (changes?.items && Array.isArray(changes.items)) {
-        console.log('📡 PresenterView: Detectada atualização de items, verificando script do item atual...', {
-          currentItemId: currentItem.id,
-          changes: changes.items
-        });
-        
         // Busca o item atualizado na nova estrutura
         let updatedItem = null;
         for (const folder of changes.items) {
           if (folder.children) {
-            updatedItem = folder.children.find(item => String(item.id) === String(currentItem.id));
+            updatedItem = folder.children.find(item => String(item.id) === String(currentItemId));
             if (updatedItem) break;
           }
         }
         
         // CRÍTICO: Só atualiza se o item encontrado é realmente o item atual
         // Isso evita atualizar o script quando outros itens são modificados
-        if (updatedItem && String(updatedItem.id) === String(currentItem.id)) {
-          console.log('✅ PresenterView: Item atual foi atualizado, verificando se script mudou...');
+        if (updatedItem && String(updatedItem.id) === String(currentItemId)) {
+          console.log('✅ PresenterView: Item atual foi atualizado via WebSocket, verificando script...', {
+            itemId: currentItemId,
+            hasScript: !!(updatedItem.script),
+            scriptLength: (updatedItem.script || '').length
+          });
           
           // Compara com o script atual para evitar atualizações desnecessárias
           const currentScriptText = currentScript?.script || '';
@@ -679,7 +628,7 @@ const PresenterView = () => {
             };
             setCurrentScript(localScript);
             console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)', {
-              itemId: currentItem.id,
+              itemId: currentItemId,
               scriptLength: newScriptText.length
             });
             // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
@@ -687,29 +636,21 @@ const PresenterView = () => {
           } else {
             console.log('📝 PresenterView: Script do item atual não mudou, mantendo script atual');
           }
-          
-          // Não recarrega do banco aqui porque já temos os dados atualizados do WebSocket
-          // O recarregamento do banco só é necessário se o script não foi encontrado no WebSocket
         } else {
-          console.log('📝 PresenterView: Mudança detectada, mas não é do item atual', {
-            currentItemId: currentItem?.id,
-            updatedItemId: updatedItem?.id
-          });
+          // Mudança detectada, mas não é do item atual - ignora silenciosamente
+          // Não loga para não poluir o console quando outros itens são modificados
         }
       }
-      
-      // CRÍTICO: Não verifica o rundown inteiro aqui porque isso pode causar resets incorretos
-      // quando outros itens são modificados. O useEffect acima já monitora mudanças no rundown
-      // e só atualiza quando o script do item atual realmente mudou.
     };
 
     // Listener para evento de atualização de script específico
     const handleScriptUpdated = (event) => {
       const { itemId } = event.detail;
-      if (itemId && currentItem?.id && String(itemId) === String(currentItem.id)) {
+      const currentItemId = currentItemIdForSyncRef.current;
+      if (itemId && currentItemId && String(itemId) === String(currentItemId)) {
         console.log('📡 PresenterView: Script atualizado detectado, recarregando imediatamente...', itemId);
         // Recarrega imediatamente, sem delay
-        loadScript(currentItem.id);
+        loadScript(currentItemId);
       }
     };
 
@@ -720,7 +661,8 @@ const PresenterView = () => {
       window.removeEventListener('rundownSync', handleRundownSync);
       window.removeEventListener('scriptUpdated', handleScriptUpdated);
     };
-  }, [currentItem, rundown, loadScript]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rundown?.id]); // Intencionalmente não inclui currentItem e loadScript nas dependências
 
 
   // Auto-scroll do script
