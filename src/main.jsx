@@ -13,28 +13,31 @@ import { NotificationsProvider } from '@/contexts/NotificationsContext.jsx';
 import { PresenterConfigProvider } from '@/contexts/PresenterConfigContext.jsx';
 import { Toaster } from '@/components/ui/toaster';
 import AuthProvider from '@/contexts/AuthProvider.jsx';
+import ErrorBoundary from '@/components/ErrorBoundary.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <HelmetProvider>
-      <BrowserRouter>
-        <ThemeProvider>
-          <AuthProvider>
-            <NotificationsProvider>
-              <SyncProvider>
-                <PresenterConfigProvider>
-                  <TimerProvider>
-                    <RundownProvider>
-                      <App />
-                      <Toaster />
-                    </RundownProvider>
-                  </TimerProvider>
-                </PresenterConfigProvider>
-              </SyncProvider>
-            </NotificationsProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </BrowserRouter>
-    </HelmetProvider>
+    <ErrorBoundary>
+      <HelmetProvider>
+        <BrowserRouter>
+          <ThemeProvider>
+            <AuthProvider>
+              <NotificationsProvider>
+                <SyncProvider>
+                  <PresenterConfigProvider>
+                    <TimerProvider>
+                      <RundownProvider>
+                        <App />
+                        <Toaster />
+                      </RundownProvider>
+                    </TimerProvider>
+                  </PresenterConfigProvider>
+                </SyncProvider>
+              </NotificationsProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </BrowserRouter>
+      </HelmetProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 );

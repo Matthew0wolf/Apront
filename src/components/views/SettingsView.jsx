@@ -270,8 +270,48 @@ const SettingsView = () => {
 
     // Converte para base64
     const reader = new FileReader();
+    reader.onerror = () => {
+      toast({
+        title: "Erro",
+        description: "Erro ao ler o arquivo de imagem.",
+        variant: "destructive",
+      });
+    };
     reader.onload = async (e) => {
       try {
+        const base64Data = e.target.result;
+        
+        // Validação adicional: verifica se o base64 está completo
+        if (!base64Data || typeof base64Data !== 'string') {
+          toast({
+            title: "Erro",
+            description: "Erro ao processar a imagem.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // Verifica se o formato está correto
+        if (!base64Data.startsWith('data:image/')) {
+          toast({
+            title: "Erro",
+            description: "Formato de imagem inválido.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // Verifica se o base64 não está truncado (deve ter pelo menos alguns caracteres após a vírgula)
+        const parts = base64Data.split(',');
+        if (parts.length !== 2 || parts[1].length < 100) {
+          toast({
+            title: "Erro",
+            description: "A imagem parece estar corrompida ou incompleta.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
         const res = await fetch(`${API_BASE_URL}/api/user/avatar`, {
           method: 'POST',
           headers: {
@@ -279,7 +319,7 @@ const SettingsView = () => {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            avatar: e.target.result
+            avatar: base64Data
           })
         });
         
@@ -303,6 +343,7 @@ const SettingsView = () => {
           });
         }
       } catch (err) {
+        console.error('Erro ao fazer upload do avatar:', err);
         toast({
           title: "Erro de conexão",
           description: "Não foi possível conectar ao servidor.",
@@ -385,7 +426,20 @@ const SettingsView = () => {
                     src={profileData.avatar ? `${API_BASE_URL}/api/user/avatar/${profileData.avatar}?t=${Date.now()}` : `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name)}&background=random&rounded=true`}
                     alt="Avatar"
                     className="w-20 h-20 rounded-full object-cover border-2 border-border"
-                    onError={(e) => { e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name)}&background=random&rounded=true`; }}
+                    onError={(e) => {
+                      // Se a imagem falhar ao carregar, usa fallback
+                      const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name || 'User')}&background=random&rounded=true`;
+                      if (e.currentTarget.src !== fallbackUrl) {
+                        e.currentTarget.src = fallbackUrl;
+                      }
+                    }}
+                    onLoad={(e) => {
+                      // Valida se a imagem carregou corretamente
+                      if (!e.currentTarget.complete || e.currentTarget.naturalWidth === 0) {
+                        const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name || 'User')}&background=random&rounded=true`;
+                        e.currentTarget.src = fallbackUrl;
+                      }
+                    }}
                   />
                   <label className="absolute bottom-0 right-0 bg-primary text-primary-foreground rounded-full p-2 cursor-pointer hover:bg-primary/90 transition">
                     <Camera className="w-4 h-4" />

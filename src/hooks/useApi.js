@@ -1,9 +1,13 @@
-import { useContext, useCallback } from 'react';
+import { useContext, useCallback, useRef } from 'react';
 import AuthContext from '@/contexts/AuthContext.jsx';
 import { API_BASE_URL } from '@/config/api';
 
+// Variável global para controlar refresh em andamento
+let refreshPromise = null;
+
 export const useApi = () => {
   const { token, refreshToken } = useContext(AuthContext);
+  const retryCountRef = useRef(0);
 
   const apiCall = useCallback(async (url, options = {}) => {
     // Se a URL for relativa (começar com /api), adiciona o API_BASE_URL
@@ -31,34 +35,50 @@ export const useApi = () => {
       // Clona a response para poder ler o erro sem consumir o body
       const errorResponse = response.clone();
       
-      const refreshed = await refreshToken();
+      // Evita múltiplas tentativas simultâneas de refresh
+      if (!refreshPromise) {
+        refreshPromise = refreshToken().finally(() => {
+          refreshPromise = null;
+        });
+      }
+      
+      const refreshed = await refreshPromise;
+      
       if (refreshed) {
         const newToken = localStorage.getItem('token');
-        const newOptions = {
-          ...defaultOptions,
-          headers: {
-            ...defaultOptions.headers,
-            'Authorization': `Bearer ${newToken}`,
-          },
-        };
-        // Tenta novamente com o novo token
-        response = await fetch(finalUrl, newOptions);
-        
-        // Se a segunda tentativa foi bem-sucedida, não logar o erro 401 inicial
-        if (response.ok) {
-          console.log('✅ Token renovado automaticamente e requisição bem-sucedida');
-        } else {
-          // Se ainda falhar, logar o erro
-          try {
-            const errorText = await errorResponse.text().catch(() => '');
-            console.warn('⚠️ 401 persistiu após refresh:', errorText);
-          } catch {}
+        if (newToken) {
+          const newOptions = {
+            ...defaultOptions,
+            headers: {
+              ...defaultOptions.headers,
+              'Authorization': `Bearer ${newToken}`,
+            },
+          };
+          // Tenta novamente com o novo token (máximo 1 retry)
+          if (retryCountRef.current < 1) {
+            retryCountRef.current++;
+            response = await fetch(finalUrl, newOptions);
+            retryCountRef.current = 0;
+            
+            // Se a segunda tentativa foi bem-sucedida, não logar o erro 401 inicial
+            if (response.ok) {
+              console.log('✅ Token renovado automaticamente e requisição bem-sucedida');
+            } else {
+              // Se ainda falhar, logar o erro apenas uma vez
+              if (response.status === 401) {
+                try {
+                  const errorText = await errorResponse.text().catch(() => '');
+                  console.warn('⚠️ 401 persistiu após refresh:', finalUrl, errorText.substring(0, 100));
+                } catch {}
+              }
+            }
+          }
         }
       } else {
-        // Se o refresh falhou, logar o erro
+        // Se o refresh falhou, logar o erro apenas uma vez
         try {
           const errorText = await errorResponse.text().catch(() => '');
-          console.warn('⚠️ 401 recebido e refresh falhou:', errorText);
+          console.warn('⚠️ 401 recebido e refresh falhou:', finalUrl, errorText.substring(0, 100));
         } catch {}
       }
     }
