@@ -548,6 +548,9 @@ const PresenterView = () => {
 
   // CRÍTICO: Monitora mudanças no rundown para atualizar script em tempo real
   // Isso garante que quando o operador salva um script, o apresentador vê imediatamente
+  // IMPORTANTE: Só atualiza se o script do item ATUAL realmente mudou
+  // Não atualiza quando outros itens são modificados (reordenação, scripts de outros itens, etc.)
+  const previousScriptRef = useRef(null); // Ref para rastrear o script anterior do item atual
   useEffect(() => {
     if (!rundown?.items || !currentItem?.id) return;
     
@@ -560,40 +563,66 @@ const PresenterView = () => {
       }
     }
     
-    // Se encontrou o item e ele tem script diferente do atual, atualiza
-    if (updatedItem && (
-      updatedItem.script !== undefined || 
-      updatedItem.talking_points || 
-      updatedItem.pronunciation_guide || 
-      updatedItem.presenter_notes
-    )) {
-      const currentScriptText = currentScript?.script || '';
-      const newScriptText = updatedItem.script || '';
-      const currentTalkingPoints = JSON.stringify(currentScript?.talking_points || []);
-      const newTalkingPoints = JSON.stringify(
-        Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
-        (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : [])
-      );
-      
-      // Só atualiza se realmente mudou (evita loops infinitos)
-      if (currentScriptText !== newScriptText || currentTalkingPoints !== newTalkingPoints ||
-          (currentScript?.pronunciation_guide || '') !== (updatedItem.pronunciation_guide || '') ||
-          (currentScript?.presenter_notes || '') !== (updatedItem.presenter_notes || '')) {
-        const localScript = {
-          id: updatedItem.id,
-          script: updatedItem.script || '',
-          talking_points: Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
-                         (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []),
-          pronunciation_guide: updatedItem.pronunciation_guide || '',
-          presenter_notes: updatedItem.presenter_notes || ''
-        };
-        setCurrentScript(localScript);
-        console.log('✅ PresenterView: Script atualizado automaticamente do rundown (tempo real)');
-        // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
-        // O scroll só deve ser resetado quando o item muda (feito no useEffect acima)
-      }
+    // CRÍTICO: Só processa se encontrou o item atual
+    if (!updatedItem) {
+      // Item atual não encontrado no rundown - pode ser temporário ou foi removido
+      // Não faz nada para evitar resetar o script incorretamente
+      return;
     }
-  }, [rundown?.items, currentItem?.id, currentScript]);
+    
+    // CRÍTICO: Só atualiza se o script do item atual realmente mudou
+    // Compara com o script anterior do item atual (não com o script atual do estado)
+    const newScriptText = updatedItem.script || '';
+    const newTalkingPoints = Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
+                            (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []);
+    const newPronunciationGuide = updatedItem.pronunciation_guide || '';
+    const newPresenterNotes = updatedItem.presenter_notes || '';
+    
+    // Cria uma representação do script atual do item no rundown
+    const currentItemScript = {
+      id: updatedItem.id,
+      script: newScriptText,
+      talking_points: newTalkingPoints,
+      pronunciation_guide: newPronunciationGuide,
+      presenter_notes: newPresenterNotes
+    };
+    
+    // Compara com o script anterior do item atual
+    const previousScript = previousScriptRef.current;
+    const scriptChanged = !previousScript || 
+                         previousScript.id !== currentItemScript.id ||
+                         previousScript.script !== currentItemScript.script ||
+                         JSON.stringify(previousScript.talking_points || []) !== JSON.stringify(currentItemScript.talking_points || []) ||
+                         previousScript.pronunciation_guide !== currentItemScript.pronunciation_guide ||
+                         previousScript.presenter_notes !== currentItemScript.presenter_notes;
+    
+    // CRÍTICO: Só atualiza se o script do item atual realmente mudou
+    if (scriptChanged) {
+      const localScript = {
+        id: currentItemScript.id,
+        script: currentItemScript.script,
+        talking_points: currentItemScript.talking_points,
+        pronunciation_guide: currentItemScript.pronunciation_guide,
+        presenter_notes: currentItemScript.presenter_notes
+      };
+      setCurrentScript(localScript);
+      previousScriptRef.current = { ...currentItemScript }; // Atualiza referência
+      console.log('✅ PresenterView: Script atualizado automaticamente do rundown (tempo real)', {
+        itemId: currentItem.id,
+        scriptLength: currentItemScript.script.length
+      });
+      // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
+      // O scroll só deve ser resetado quando o item muda (feito no useEffect acima)
+    }
+  }, [rundown?.items, currentItem?.id]);
+  
+  // CRÍTICO: Reseta a referência do script anterior quando o item muda
+  useEffect(() => {
+    if (currentItem?.id) {
+      // Reseta a referência quando o item muda
+      previousScriptRef.current = null;
+    }
+  }, [currentItem?.id]);
 
   // Listener para detectar quando o script foi atualizado via sincronização
   useEffect(() => {
@@ -621,11 +650,25 @@ const PresenterView = () => {
           }
         }
         
-        if (updatedItem) {
-          console.log('✅ PresenterView: Item atual foi atualizado, atualizando script localmente...');
+        // CRÍTICO: Só atualiza se o item encontrado é realmente o item atual
+        // Isso evita atualizar o script quando outros itens são modificados
+        if (updatedItem && String(updatedItem.id) === String(currentItem.id)) {
+          console.log('✅ PresenterView: Item atual foi atualizado, verificando se script mudou...');
           
-          // Atualiza o script localmente imediatamente (para sincronização instantânea)
-          if (updatedItem.script !== undefined || updatedItem.talking_points || updatedItem.pronunciation_guide || updatedItem.presenter_notes) {
+          // Compara com o script atual para evitar atualizações desnecessárias
+          const currentScriptText = currentScript?.script || '';
+          const newScriptText = updatedItem.script || '';
+          const currentTalkingPoints = JSON.stringify(currentScript?.talking_points || []);
+          const newTalkingPoints = JSON.stringify(
+            Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
+            (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : [])
+          );
+          
+          // Só atualiza se o script realmente mudou
+          if (currentScriptText !== newScriptText || 
+              currentTalkingPoints !== newTalkingPoints ||
+              (currentScript?.pronunciation_guide || '') !== (updatedItem.pronunciation_guide || '') ||
+              (currentScript?.presenter_notes || '') !== (updatedItem.presenter_notes || '')) {
             const localScript = {
               id: updatedItem.id,
               script: updatedItem.script || '',
@@ -635,60 +678,29 @@ const PresenterView = () => {
               presenter_notes: updatedItem.presenter_notes || ''
             };
             setCurrentScript(localScript);
-            console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)');
+            console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)', {
+              itemId: currentItem.id,
+              scriptLength: newScriptText.length
+            });
             // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
             // O scroll só deve ser resetado quando o item muda
+          } else {
+            console.log('📝 PresenterView: Script do item atual não mudou, mantendo script atual');
           }
           
-          // Também tenta recarregar do banco (se o item existir lá)
-          // Mas não reseta o scroll durante o carregamento
-          loadScript(currentItem.id);
+          // Não recarrega do banco aqui porque já temos os dados atualizados do WebSocket
+          // O recarregamento do banco só é necessário se o script não foi encontrado no WebSocket
+        } else {
+          console.log('📝 PresenterView: Mudança detectada, mas não é do item atual', {
+            currentItemId: currentItem?.id,
+            updatedItemId: updatedItem?.id
+          });
         }
       }
       
-      // CRÍTICO: Também verifica se o item atual foi atualizado no rundown (atualizado pelo RundownContext)
-      // Isso garante que mesmo quando não há changes.items, mas o rundown foi atualizado, o script seja atualizado
-      if (rundown?.items && currentItem?.id) {
-        // Busca o item atual no rundown atualizado
-        let updatedItemInRundown = null;
-        for (const folder of rundown.items) {
-          if (folder.children) {
-            updatedItemInRundown = folder.children.find(item => String(item.id) === String(currentItem.id));
-            if (updatedItemInRundown) break;
-          }
-        }
-        
-        // Se encontrou o item e ele tem script, atualiza
-        if (updatedItemInRundown && (
-          updatedItemInRundown.script !== undefined || 
-          updatedItemInRundown.talking_points || 
-          updatedItemInRundown.pronunciation_guide || 
-          updatedItemInRundown.presenter_notes
-        )) {
-          // Compara com o script atual para evitar atualizações desnecessárias
-          const currentScriptText = currentScript?.script || '';
-          const newScriptText = updatedItemInRundown.script || '';
-          
-          if (currentScriptText !== newScriptText || 
-              JSON.stringify(currentScript?.talking_points || []) !== JSON.stringify(
-                Array.isArray(updatedItemInRundown.talking_points) ? updatedItemInRundown.talking_points : 
-                (typeof updatedItemInRundown.talking_points === 'string' ? JSON.parse(updatedItemInRundown.talking_points || '[]') : [])
-              )) {
-            const localScript = {
-              id: updatedItemInRundown.id,
-              script: updatedItemInRundown.script || '',
-              talking_points: Array.isArray(updatedItemInRundown.talking_points) ? updatedItemInRundown.talking_points : 
-                             (typeof updatedItemInRundown.talking_points === 'string' ? JSON.parse(updatedItemInRundown.talking_points || '[]') : []),
-              pronunciation_guide: updatedItemInRundown.pronunciation_guide || '',
-              presenter_notes: updatedItemInRundown.presenter_notes || ''
-            };
-            setCurrentScript(localScript);
-            console.log('✅ PresenterView: Script atualizado do rundown (tempo real)');
-            // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
-            // O scroll só deve ser resetado quando o item muda
-          }
-        }
-      }
+      // CRÍTICO: Não verifica o rundown inteiro aqui porque isso pode causar resets incorretos
+      // quando outros itens são modificados. O useEffect acima já monitora mudanças no rundown
+      // e só atualiza quando o script do item atual realmente mudou.
     };
 
     // Listener para evento de atualização de script específico
