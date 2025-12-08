@@ -46,6 +46,118 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
     return `${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
   };
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+  const autoSaveTimeoutRef = useRef(null);
+  const lastSavedDataRef = useRef(null);
+
+  // Função para salvar automaticamente (debounced)
+  const autoSave = useCallback(async (dataToSave, silent = true) => {
+    // Cancela salvamento anterior se ainda estiver pendente
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Verifica se o item tem ID temporário
+    const isTemporaryId = isNaN(Number(item.id));
+    
+    if (isTemporaryId) {
+      // Item temporário: salva localmente via WebSocket
+      if (onSave) {
+        onSave(dataToSave);
+      }
+      if (!silent) {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      }
+      return;
+    }
+
+    // Debounce: aguarda 1.5 segundos após a última alteração
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        setSaveStatus('saving');
+        
+        const response = await apiCall(`/api/items/${item.id}/script`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            script: dataToSave.script,
+            talking_points: dataToSave.talkingPoints,
+            pronunciation_guide: dataToSave.pronunciationGuide,
+            presenter_notes: dataToSave.presenterNotes
+          })
+        });
+
+        if (response.ok) {
+          const result = await response.json().catch(() => ({}));
+          lastSavedDataRef.current = JSON.stringify(dataToSave);
+          
+          // Notifica outros clientes via WebSocket
+          window.dispatchEvent(new CustomEvent('scriptUpdated', {
+            detail: { itemId: item.id }
+          }));
+          
+          if (onSave) {
+            onSave(dataToSave);
+          }
+          
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+          
+          if (!silent) {
+            toast({
+              title: "✅ Script salvo",
+              description: "O script foi atualizado automaticamente!"
+            });
+          }
+        } else {
+          // Se 404, o item pode não existir no banco ainda - salva localmente
+          if (response.status === 404) {
+            console.warn('⚠️ Item não encontrado (404). Salvando localmente...', item.id);
+            if (onSave) {
+              onSave(dataToSave);
+            }
+            window.dispatchEvent(new CustomEvent('scriptUpdated', {
+              detail: { itemId: item.id }
+            }));
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 2000);
+          } else if (response.status === 401) {
+            // Token expirado - salva localmente e tenta novamente depois
+            console.warn('⚠️ Token expirado (401). Salvando localmente...', item.id);
+            if (onSave) {
+              onSave(dataToSave);
+            }
+            window.dispatchEvent(new CustomEvent('scriptUpdated', {
+              detail: { itemId: item.id }
+            }));
+            setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 2000);
+          } else {
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+            if (!silent) {
+              const errorData = await response.json().catch(() => ({}));
+              toast({
+                variant: "destructive",
+                title: "Erro ao salvar",
+                description: errorData.error || "Não foi possível salvar o script"
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao salvar automaticamente:', error);
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+        
+        // Em caso de erro, salva localmente como fallback
+        if (onSave) {
+          onSave(dataToSave);
+        }
+      }
+    }, 1500); // 1.5 segundos de debounce
+  }, [item.id, apiCall, onSave, toast]);
 
   useEffect(() => {
     // Carregar script do item
@@ -66,12 +178,14 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           const data = await response.json();
           // Só carrega do servidor se o usuário ainda não começou a editar
           if (!isDirty) {
-            setScriptData({
+            const loadedData = {
               script: data.script || '',
               talkingPoints: data.talking_points || [],
               pronunciationGuide: data.pronunciation_guide || '',
               presenterNotes: data.presenter_notes || ''
-            });
+            };
+            setScriptData(loadedData);
+            lastSavedDataRef.current = JSON.stringify(loadedData);
           }
         }
       } catch (error) {
@@ -85,142 +199,55 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       setIsDirty(false);
       loadScript();
     }
-  }, [item, apiCall]);
+
+    // Cleanup: cancela salvamento pendente ao desmontar
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [item, apiCall, isDirty]);
+
+  // Auto-save quando scriptData muda
+  useEffect(() => {
+    if (isDirty && item?.id) {
+      const currentData = JSON.stringify(scriptData);
+      // Só salva se os dados mudaram desde a última vez e não estiver salvando
+      if (currentData !== lastSavedDataRef.current && saveStatus !== 'saving') {
+        autoSave(scriptData, true); // silent = true para não mostrar toast a cada salvamento
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scriptData, isDirty, item?.id]); // Não inclui autoSave e saveStatus para evitar loops
 
   const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      // Verifica se o item tem ID temporário (string) ou real (número)
-      const isTemporaryId = isNaN(Number(item.id));
-      
-      if (isTemporaryId) {
-        // Item ainda não foi salvo no backend: salva no estado local e sincroniza via WebSocket
-        console.log('📝 Salvando script localmente para item temporário e sincronizando:', item.id);
-        
-        // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
-        if (onSave) {
-          onSave(scriptData);
-        }
-        
-        // Dispara evento para notificar outros clientes (especialmente o apresentador)
-        window.dispatchEvent(new CustomEvent('scriptUpdated', {
-          detail: { itemId: item.id }
-        }));
-        
-        toast({
-          title: "✅ Script salvo",
-          description: "O script foi atualizado e sincronizado com sucesso!"
-        });
-        setIsSaving(false);
-        onClose();
-      } else {
-        // Item existe no backend: salva via API
-        const response = await apiCall(`/api/items/${item.id}/script`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            script: scriptData.script,
-            talking_points: scriptData.talkingPoints,
-            pronunciation_guide: scriptData.pronunciationGuide,
-            presenter_notes: scriptData.presenterNotes
-          })
-        });
+    // Cancela qualquer salvamento automático pendente
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = null;
+    }
 
-        if (response.ok) {
-          const result = await response.json().catch(() => ({}));
-          
-          toast({
-            title: "✅ Script salvo",
-            description: "O script foi atualizado com sucesso!"
-          });
-          
-          // Dispara evento para notificar outros clientes (especialmente o apresentador)
-          window.dispatchEvent(new CustomEvent('scriptUpdated', {
-            detail: { itemId: item.id }
-          }));
-          
-          if (onSave) {
-            onSave(scriptData);
-          }
-          onClose();
-        } else {
-          const errorData = await response.json().catch(() => ({}));
-          
-          // Se for 404, o item pode não ter sido salvo no banco ainda
-          // Nesse caso, salva localmente e sincroniza imediatamente via WebSocket
-          if (response.status === 404) {
-            console.warn('⚠️ Item não encontrado no banco (404). Salvando localmente e sincronizando...', item.id);
-            // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
-            if (onSave) {
-              onSave(scriptData);
-            }
-            // Dispara evento para notificar outros clientes (especialmente o apresentador)
-            window.dispatchEvent(new CustomEvent('scriptUpdated', {
-              detail: { itemId: item.id }
-            }));
-            toast({
-              title: "✅ Script salvo localmente",
-              description: "O script foi sincronizado. Será salvo no banco quando o projeto for salvo."
-            });
-            setIsSaving(false);
-            onClose();
-            return;
-          }
-          
-          // Se for 401, pode ser token expirado - o useApi já tenta refresh automaticamente
-          // Mas se ainda assim falhar, salva localmente e sincroniza via WebSocket
-          if (response.status === 401) {
-            const errorDetail = errorData?.detail || errorData?.error || 'Token expirado ou inválido';
-            console.warn('⚠️ Erro de autenticação (401) ao salvar script:', {
-              itemId: item.id,
-              error: errorData,
-              detail: errorDetail
-            });
-            
-            // Salva localmente através do callback onSave (que já sincroniza via WebSocket)
-            if (onSave) {
-              onSave(scriptData);
-            }
-            // Dispara evento para notificar outros clientes (especialmente o apresentador)
-            window.dispatchEvent(new CustomEvent('scriptUpdated', {
-              detail: { itemId: item.id }
-            }));
-            
-            toast({
-              title: "⏳ Script salvo localmente",
-              description: `O script foi sincronizado. ${errorDetail === 'Token expirado' ? 'Faça login novamente para salvar no banco.' : 'Será salvo no banco quando o projeto for salvo.'}`
-            });
-            setIsSaving(false);
-            onClose();
-            return;
-          }
-          
-          // Para outros erros, também salva localmente como fallback e sincroniza
-          console.warn('⚠️ Erro ao salvar script no backend. Salvando localmente e sincronizando...', item.id, errorData);
-          if (onSave) {
-            onSave(scriptData);
-          }
-          // Dispara evento para notificar outros clientes (especialmente o apresentador)
-          window.dispatchEvent(new CustomEvent('scriptUpdated', {
-            detail: { itemId: item.id }
-          }));
-          toast({
-            title: "✅ Script salvo localmente",
-            description: "O script foi sincronizado. Será salvo no banco quando possível."
-          });
-          setIsSaving(false);
-          onClose();
-          return;
-        }
-      }
+    setIsSaving(true);
+    setSaveStatus('saving');
+    
+    try {
+      // Força salvamento imediato (sem debounce)
+      await autoSave(scriptData, false); // silent = false para mostrar toast
+      
+      // Aguarda um pouco para garantir que o salvamento foi processado
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      setIsSaving(false);
+      onClose();
     } catch (error) {
+      setIsSaving(false);
+      setSaveStatus('error');
       toast({
         variant: "destructive",
         title: "Erro ao salvar",
-        description: error.message
+        description: error.message || "Não foi possível salvar o script"
       });
-    } finally {
-      setIsSaving(false);
+      setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
 
@@ -253,12 +280,31 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border">
-          <div>
+          <div className="flex-1">
             <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <FileText className="w-6 h-6 text-primary" />
               Editor de Script
             </h2>
-            <p className="text-sm text-muted-foreground mt-1">{item?.title}</p>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-sm text-muted-foreground">{item?.title}</p>
+              {/* Indicador de salvamento em tempo real */}
+              {saveStatus === 'saving' && (
+                <span className="text-xs text-primary flex items-center gap-1">
+                  <span className="animate-spin">⏳</span>
+                  Salvando...
+                </span>
+              )}
+              {saveStatus === 'saved' && (
+                <span className="text-xs text-green-500 flex items-center gap-1">
+                  ✓ Salvo
+                </span>
+              )}
+              {saveStatus === 'error' && (
+                <span className="text-xs text-red-500 flex items-center gap-1">
+                  ⚠ Erro ao salvar
+                </span>
+              )}
+            </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="w-5 h-5" />

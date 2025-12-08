@@ -122,8 +122,14 @@ def update_item_script(item_id):
         
         item = Item.query.get(item_id)
         if not item:
-            print(f"❌ PUT script: Item {item_id} não encontrado")
-            response = jsonify({'error': 'Item não encontrado. Certifique-se de que o projeto foi salvo.'})
+            print(f"❌ PUT script: Item {item_id} não encontrado no banco")
+            print(f"   Isso pode acontecer se o item ainda não foi salvo no banco de dados.")
+            print(f"   O script será salvo localmente e sincronizado via WebSocket.")
+            response = jsonify({
+                'error': 'Item não encontrado no banco',
+                'message': 'O item pode não ter sido salvo ainda. O script será sincronizado localmente.',
+                'saved_locally': True
+            })
             response.headers.add('Access-Control-Allow-Origin', '*')
             return response, 404
         

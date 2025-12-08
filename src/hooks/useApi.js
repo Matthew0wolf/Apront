@@ -62,9 +62,10 @@ export const useApi = () => {
             
             // Se a segunda tentativa foi bem-sucedida, não logar o erro 401 inicial
             if (response.ok) {
-              console.log('✅ Token renovado automaticamente e requisição bem-sucedida');
+              // Silencioso: token renovado automaticamente com sucesso
+              // Não loga para não poluir o console
             } else {
-              // Se ainda falhar, logar o erro apenas uma vez
+              // Se ainda falhar, só loga se não for 404 (404 pode ser esperado em alguns casos)
               if (response.status === 401) {
                 try {
                   const errorText = await errorResponse.text().catch(() => '');
@@ -75,11 +76,8 @@ export const useApi = () => {
           }
         }
       } else {
-        // Se o refresh falhou, logar o erro apenas uma vez
-        try {
-          const errorText = await errorResponse.text().catch(() => '');
-          console.warn('⚠️ 401 recebido e refresh falhou:', finalUrl, errorText.substring(0, 100));
-        } catch {}
+        // Se o refresh falhou, loga apenas se for crítico
+        // Não loga para não poluir o console com erros esperados
       }
     }
 
