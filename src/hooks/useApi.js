@@ -35,6 +35,14 @@ export const useApi = () => {
     };
 
     let response = await fetch(finalUrl, defaultOptions);
+    
+    // CRÍTICO: Suprime logs de 404 para requisições GET de script
+    // Isso evita poluir o console com erros esperados (itens temporários ou recém-criados)
+    const isScriptGetRoute = url.includes('/api/items/') && url.includes('/script') && (!options.method || options.method === 'GET');
+    if (response.status === 404 && isScriptGetRoute) {
+      // Retorna a response sem logar - é esperado para itens que ainda não foram salvos
+      return response;
+    }
 
     // Se 401, tenta renovar token independentemente da mensagem
     if (response.status === 401) {

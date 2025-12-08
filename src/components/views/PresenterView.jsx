@@ -486,11 +486,12 @@ const PresenterView = () => {
 
     try {
       // PRIMEIRO: Tenta carregar do rundown local (sincronização instantânea)
+      let hasLocalData = false;
       if (rundown?.items) {
         for (const folder of rundown.items) {
           if (folder.children) {
             const localItem = folder.children.find(item => String(item.id) === String(itemId));
-            if (localItem && (localItem.script || localItem.talking_points || localItem.pronunciation_guide || localItem.presenter_notes)) {
+            if (localItem && (localItem.script !== undefined || localItem.talking_points || localItem.pronunciation_guide || localItem.presenter_notes)) {
               console.log('✅ Script carregado do rundown local (instantâneo):', itemId);
               const localScript = {
                 id: localItem.id,
@@ -501,7 +502,9 @@ const PresenterView = () => {
                 presenter_notes: localItem.presenter_notes || ''
               };
               setCurrentScript(localScript);
-              // Continua tentando carregar do banco para pegar versão mais atualizada (se existir)
+              hasLocalData = true;
+              // Se temos dados locais completos, não precisa tentar carregar do banco
+              // (a menos que seja um item já salvo e possamos ter versão mais recente)
             }
           }
         }
@@ -512,27 +515,38 @@ const PresenterView = () => {
       
       if (isTemporaryId) {
         // Item ainda não foi salvo no backend: já carregou do rundown local acima
-        console.log('📝 Item temporário, usando script do rundown local:', itemId);
+        // Não tenta carregar do banco (não existe lá)
         return;
       }
       
-      // Tenta carregar do banco para pegar versão mais atualizada (se existir)
+      // CRÍTICO: Se já temos dados locais completos, só tenta carregar do banco
+      // se o item já foi salvo (não é temporário) e se realmente precisamos de uma versão mais atualizada
+      // Para evitar requisições 404 desnecessárias, só tenta GET se não temos dados locais
+      // ou se o item foi recém-salvo (pode ter versão mais recente no banco)
+      if (hasLocalData) {
+        // Já temos dados locais - não precisa fazer GET (evita 404)
+        // O script já foi carregado do rundown local acima
+        return;
+      }
+      
+      // Só tenta carregar do banco se não temos dados locais
+      // Isso evita requisições 404 desnecessárias para itens que ainda não foram salvos
       const response = await apiCall(`/api/items/${itemId}/script`);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Script carregado do banco para item:', itemId, data);
+        console.log('✅ Script carregado do banco para item:', itemId);
         setCurrentScript(data);
       } else if (response.status === 404) {
         // Item não existe no banco: mantém o script do rundown local (se existir)
-        console.log('⚠️ Item não encontrado no banco, usando script do rundown local:', itemId);
+        // Não loga para não poluir o console (é esperado para itens temporários ou recém-criados)
         // O script já foi carregado do rundown local acima, então não precisa fazer nada
       } else {
-        console.warn('⚠️ Erro ao carregar script do banco:', response.status);
+        // Outros erros (401, 500, etc) - não loga para não poluir o console
         // Mantém o script do rundown local (se existir)
       }
     } catch (error) {
-      console.error('❌ Erro ao carregar script:', error);
+      // Não loga erros de rede para não poluir o console
       // Mantém o script do rundown local (se existir)
     }
   }, [apiCall, rundown]);
@@ -569,88 +583,119 @@ const PresenterView = () => {
   // CRÍTICO: Este é o ÚNICO lugar que deve atualizar o script quando outros itens são modificados
   // Ele filtra corretamente apenas mudanças do item atual
   const currentItemIdForSyncRef = useRef(null);
+  const currentScriptSnapshotRef = useRef(null); // Ref para rastrear o script atual e evitar resets incorretos
+  
   useEffect(() => {
     // Atualiza a ref quando o item muda
     currentItemIdForSyncRef.current = currentItem?.id;
+    // Reseta o snapshot quando o item muda
+    currentScriptSnapshotRef.current = null;
   }, [currentItem?.id]);
+  
+  // Atualiza o snapshot sempre que o script muda
+  useEffect(() => {
+    if (currentScript) {
+      currentScriptSnapshotRef.current = {
+        id: currentScript.id,
+        script: currentScript.script || '',
+        talking_points: JSON.stringify(currentScript.talking_points || []),
+        pronunciation_guide: currentScript.pronunciation_guide || '',
+        presenter_notes: currentScript.presenter_notes || ''
+      };
+    }
+  }, [currentScript]);
   
   useEffect(() => {
     const handleRundownSync = (event) => {
       const { rundownId, changes } = event.detail;
       const currentItemId = currentItemIdForSyncRef.current;
+      const scriptSnapshot = currentScriptSnapshotRef.current;
       
       // Verifica se é o rundown atual E se há um item atual
       if (!currentItemId || !rundown?.id || String(rundown.id) !== String(rundownId)) {
         return;
       }
       
-      // Verifica se há mudanças nos items
-      if (changes?.items && Array.isArray(changes.items)) {
-        // Busca o item atualizado na nova estrutura
-        let updatedItem = null;
-        for (const folder of changes.items) {
-          if (folder.children) {
-            updatedItem = folder.children.find(item => String(item.id) === String(currentItemId));
-            if (updatedItem) break;
-          }
-        }
-        
-        // CRÍTICO: Só atualiza se o item encontrado é realmente o item atual
-        // Isso evita atualizar o script quando outros itens são modificados
-        if (updatedItem && String(updatedItem.id) === String(currentItemId)) {
-          console.log('✅ PresenterView: Item atual foi atualizado via WebSocket, verificando script...', {
-            itemId: currentItemId,
-            hasScript: !!(updatedItem.script),
-            scriptLength: (updatedItem.script || '').length
-          });
-          
-          // Compara com o script atual para evitar atualizações desnecessárias
-          const currentScriptText = currentScript?.script || '';
-          const newScriptText = updatedItem.script || '';
-          const currentTalkingPoints = JSON.stringify(currentScript?.talking_points || []);
-          const newTalkingPoints = JSON.stringify(
-            Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
-            (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : [])
-          );
-          
-          // Só atualiza se o script realmente mudou
-          if (currentScriptText !== newScriptText || 
-              currentTalkingPoints !== newTalkingPoints ||
-              (currentScript?.pronunciation_guide || '') !== (updatedItem.pronunciation_guide || '') ||
-              (currentScript?.presenter_notes || '') !== (updatedItem.presenter_notes || '')) {
-            const localScript = {
-              id: updatedItem.id,
-              script: updatedItem.script || '',
-              talking_points: Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
-                             (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []),
-              pronunciation_guide: updatedItem.pronunciation_guide || '',
-              presenter_notes: updatedItem.presenter_notes || ''
-            };
-            setCurrentScript(localScript);
-            console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)', {
-              itemId: currentItemId,
-              scriptLength: newScriptText.length
-            });
-            // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
-            // O scroll só deve ser resetado quando o item muda
-          } else {
-            console.log('📝 PresenterView: Script do item atual não mudou, mantendo script atual');
-          }
-        } else {
-          // Mudança detectada, mas não é do item atual - ignora silenciosamente
-          // Não loga para não poluir o console quando outros itens são modificados
+      // CRÍTICO: Se não há mudanças específicas de script, ignora completamente
+      // Isso evita processar eventos de reordenação ou mudanças em outros itens
+      if (!changes?.items || !Array.isArray(changes.items)) {
+        return;
+      }
+      
+      // Busca o item atualizado na nova estrutura
+      let updatedItem = null;
+      for (const folder of changes.items) {
+        if (folder.children) {
+          updatedItem = folder.children.find(item => String(item.id) === String(currentItemId));
+          if (updatedItem) break;
         }
       }
+      
+      // CRÍTICO: Se o item atual não está na lista de mudanças, ignora completamente
+      // Isso significa que a mudança foi em outro item/pasta, não no item atual
+      if (!updatedItem || String(updatedItem.id) !== String(currentItemId)) {
+        // Mudança em outro item - ignora silenciosamente
+        return;
+      }
+      
+      // CRÍTICO: Compara com o snapshot do script atual para evitar resets incorretos
+      // Se o script não mudou realmente, não atualiza
+      const newScriptText = updatedItem.script || '';
+      const newTalkingPoints = Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
+                              (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []);
+      const newTalkingPointsStr = JSON.stringify(newTalkingPoints);
+      const newPronunciationGuide = updatedItem.pronunciation_guide || '';
+      const newPresenterNotes = updatedItem.presenter_notes || '';
+      
+      // Compara com o snapshot atual
+      const scriptChanged = !scriptSnapshot || 
+                          scriptSnapshot.id !== String(currentItemId) ||
+                          scriptSnapshot.script !== newScriptText ||
+                          scriptSnapshot.talking_points !== newTalkingPointsStr ||
+                          scriptSnapshot.pronunciation_guide !== newPronunciationGuide ||
+                          scriptSnapshot.presenter_notes !== newPresenterNotes;
+      
+      // CRÍTICO: Só atualiza se o script REALMENTE mudou
+      if (scriptChanged) {
+        const localScript = {
+          id: updatedItem.id,
+          script: newScriptText,
+          talking_points: newTalkingPoints,
+          pronunciation_guide: newPronunciationGuide,
+          presenter_notes: newPresenterNotes
+        };
+        setCurrentScript(localScript);
+        console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)', {
+          itemId: currentItemId,
+          scriptLength: newScriptText.length,
+          hadPreviousScript: !!scriptSnapshot
+        });
+        // CRÍTICO: NÃO reseta o scroll quando apenas o script é atualizado
+        // O scroll só deve ser resetado quando o item muda
+      }
+      // Se o script não mudou, não faz nada (mantém o script atual)
     };
 
     // Listener para evento de atualização de script específico
+    // CRÍTICO: Este evento só deve ser disparado quando o script do item atual foi realmente atualizado
+    // Não recarrega se já temos o script atual (evita resets desnecessários)
     const handleScriptUpdated = (event) => {
       const { itemId } = event.detail;
       const currentItemId = currentItemIdForSyncRef.current;
       if (itemId && currentItemId && String(itemId) === String(currentItemId)) {
-        console.log('📡 PresenterView: Script atualizado detectado, recarregando imediatamente...', itemId);
-        // Recarrega imediatamente, sem delay
-        loadScript(currentItemId);
+        // Verifica se já temos o script atual antes de recarregar
+        // Se já temos, não precisa recarregar (evita reset)
+        const hasCurrentScript = currentScriptSnapshotRef.current && 
+                                 currentScriptSnapshotRef.current.id === String(currentItemId);
+        
+        if (!hasCurrentScript) {
+          console.log('📡 PresenterView: Script atualizado detectado, recarregando...', itemId);
+          // Só recarrega se não temos o script atual
+          loadScript(currentItemId);
+        } else {
+          // Já temos o script - o handleRundownSync acima já atualizou
+          console.log('📡 PresenterView: Script atualizado detectado, mas já temos o script atual');
+        }
       }
     };
 
