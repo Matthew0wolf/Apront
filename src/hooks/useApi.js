@@ -4,6 +4,8 @@ import { API_BASE_URL } from '@/config/api';
 
 // Variável global para controlar refresh em andamento
 let refreshPromise = null;
+let lastRefreshTime = 0;
+let refreshCooldown = 5000; // 5 segundos de cooldown entre refreshes
 
 export const useApi = () => {
   const { token, refreshToken } = useContext(AuthContext);
@@ -39,14 +41,23 @@ export const useApi = () => {
       // Clona a response para poder ler o erro sem consumir o body
       const errorResponse = response.clone();
       
-      // Evita múltiplas tentativas simultâneas de refresh
-      if (!refreshPromise) {
+      // CRÍTICO: Evita tentar fazer refresh muito frequentemente
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastRefreshTime;
+      
+      // Evita múltiplas tentativas simultâneas de refresh E respeita cooldown
+      if (!refreshPromise && timeSinceLastRefresh >= refreshCooldown) {
+        lastRefreshTime = now;
         refreshPromise = refreshToken().finally(() => {
           refreshPromise = null;
         });
+      } else if (timeSinceLastRefresh < refreshCooldown) {
+        // Se ainda está em cooldown, não tenta fazer refresh
+        console.log(`⏸️ Refresh em cooldown. Aguardando ${Math.ceil((refreshCooldown - timeSinceLastRefresh) / 1000)}s`);
+        return response; // Retorna o 401 sem tentar refresh
       }
       
-      const refreshed = await refreshPromise;
+      const refreshed = refreshPromise ? await refreshPromise : false;
       
       if (refreshed) {
         // Aguarda um pouco para garantir que o token foi atualizado no contexto

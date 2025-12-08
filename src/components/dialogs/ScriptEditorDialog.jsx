@@ -53,6 +53,8 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
   const isSavingRef = useRef(false); // Ref para evitar múltiplas requisições simultâneas
   const lastErrorTimeRef = useRef(0); // Ref para rastrear quando ocorreu o último erro 429
   const consecutiveErrorsRef = useRef(0); // Ref para contar erros consecutivos
+  const consecutive401404Ref = useRef(0); // Ref para contar erros 401/404 consecutivos
+  const last401404TimeRef = useRef(0); // Ref para rastrear quando ocorreu o último erro 401/404
 
   // Função para salvar imediatamente (sem debounce) - usada quando o usuário clica em salvar ou fecha
   const saveImmediately = useCallback(async (dataToSave, silent = true) => {
@@ -62,17 +64,25 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       return false;
     }
 
+    // CRÍTICO: SEMPRE salva via onSave primeiro (que chama syncRundownUpdate -> PATCH rundown)
+    // Isso garante que o script seja salvo no banco de dados, mesmo se o PUT falhar
+    // O PATCH do rundown já salva os scripts corretamente (ver backend/routes/rundown.py linha 403-406)
+    if (onSave) {
+      onSave(dataToSave);
+    }
+
     // Verifica se o item tem ID temporário
     const isTemporaryId = isNaN(Number(item.id));
     
     if (isTemporaryId) {
-      // Item temporário: salva localmente via WebSocket
-      if (onSave) {
-        onSave(dataToSave);
-      }
+      // Item temporário: já salvou via onSave (PATCH rundown), não precisa tentar PUT
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
       if (!silent) {
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
+        toast({
+          title: "✅ Script salvo",
+          description: "O script foi atualizado com sucesso!"
+        });
       }
       return true;
     }
@@ -84,13 +94,14 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
     
     if (timeSinceLastError < backoffDelay && consecutiveErrorsRef.current > 0) {
       console.log(`⏳ Aguardando backoff após erro 429: ${Math.ceil((backoffDelay - timeSinceLastError) / 1000)}s restantes`);
-      // Salva localmente enquanto espera
-      if (onSave) {
-        onSave(dataToSave);
-      }
-      return false; // Não tenta salvar no banco ainda
+      // Já salvou via onSave, então retorna sucesso
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      return true;
     }
 
+    // Tenta salvar via PUT como otimização (item já existe no banco)
+    // Se falhar, não é problema porque já salvou via PATCH rundown
     try {
       isSavingRef.current = true;
       setSaveStatus('saving');
@@ -111,15 +122,13 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         lastSavedDataRef.current = JSON.stringify(dataToSave);
         consecutiveErrorsRef.current = 0; // Reset contador de erros
         lastErrorTimeRef.current = 0; // Reset tempo do último erro
+        consecutive401404Ref.current = 0; // Reset contador de erros 401/404
+        last401404TimeRef.current = 0; // Reset tempo do último erro 401/404
         
         // Notifica outros clientes via WebSocket
         window.dispatchEvent(new CustomEvent('scriptUpdated', {
           detail: { itemId: item.id }
         }));
-        
-        if (onSave) {
-          onSave(dataToSave);
-        }
         
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
@@ -138,89 +147,47 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           consecutiveErrorsRef.current += 1;
           lastErrorTimeRef.current = Date.now();
           const backoffSeconds = Math.min(30, Math.pow(2, consecutiveErrorsRef.current));
-          console.warn(`⚠️ 429 TOO MANY REQUESTS. Aplicando backoff de ${backoffSeconds}s. Erros consecutivos: ${consecutiveErrorsRef.current}`);
+          console.warn(`⚠️ 429 TOO MANY REQUESTS no PUT. Já salvou via PATCH rundown. Backoff de ${backoffSeconds}s.`);
           
-          // Salva localmente enquanto espera
-          if (onSave) {
-            onSave(dataToSave);
-          }
-          
-          setSaveStatus('error');
-          setTimeout(() => setSaveStatus('idle'), 3000);
+          // Já salvou via onSave (PATCH rundown), então retorna sucesso
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
           isSavingRef.current = false;
-          
-          if (!silent) {
-            toast({
-              variant: "destructive",
-              title: "Muitas requisições",
-              description: `Aguardando ${backoffSeconds}s antes de tentar novamente...`
-            });
-          }
-          return false;
+          return true; // Retorna true porque já salvou via PATCH
         }
         
-        // Se 404, o item pode não existir no banco ainda - salva localmente
-        if (response.status === 404) {
-          consecutiveErrorsRef.current = 0; // Reset contador (404 não é um erro de rate limit)
-          // Não loga como erro - é esperado quando o item ainda não foi salvo no banco
-          if (onSave) {
-            onSave(dataToSave);
-          }
+        // Se 404 ou 401, o item pode não existir no banco ainda ou token inválido
+        // Mas já salvou via PATCH rundown, então não é problema
+        if (response.status === 404 || response.status === 401) {
+          consecutive401404Ref.current += 1;
+          last401404TimeRef.current = Date.now();
+          console.log(`⚠️ ${response.status} no PUT. Já salvou via PATCH rundown. Erros consecutivos: ${consecutive401404Ref.current}`);
+          
+          // Já salvou via onSave (PATCH rundown), então retorna sucesso
           window.dispatchEvent(new CustomEvent('scriptUpdated', {
             detail: { itemId: item.id }
           }));
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 2000);
           isSavingRef.current = false;
-          return true;
-        } else if (response.status === 401) {
-          consecutiveErrorsRef.current = 0; // Reset contador (401 não é um erro de rate limit)
-          // Se ainda é 401 após o refresh ter sido tentado pelo useApi,
-          // significa que o refresh falhou ou o token ainda é inválido
-          // Salva localmente como fallback
-          if (onSave) {
-            onSave(dataToSave);
-          }
-          window.dispatchEvent(new CustomEvent('scriptUpdated', {
-            detail: { itemId: item.id }
-          }));
-          setSaveStatus('saved');
-          setTimeout(() => setSaveStatus('idle'), 2000);
-          isSavingRef.current = false;
-          return true;
+          return true; // Retorna true porque já salvou via PATCH
         } else {
           // Outros erros (500, 403, etc)
-          consecutiveErrorsRef.current = 0; // Reset contador
-          setSaveStatus('error');
-          setTimeout(() => setSaveStatus('idle'), 3000);
-          if (!silent) {
-            const errorData = await response.json().catch(() => ({}));
-            toast({
-              variant: "destructive",
-              title: "Erro ao salvar",
-              description: errorData.error || "Não foi possível salvar o script"
-            });
-          }
-          // Mesmo com erro, salva localmente como fallback
-          if (onSave) {
-            onSave(dataToSave);
-          }
+          // Já salvou via PATCH rundown, então retorna sucesso mesmo com erro no PUT
+          console.warn(`⚠️ Erro ${response.status} no PUT. Já salvou via PATCH rundown.`);
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
           isSavingRef.current = false;
-          return false;
+          return true; // Retorna true porque já salvou via PATCH
         }
       }
     } catch (error) {
-      console.error('Erro ao salvar:', error);
-      consecutiveErrorsRef.current = 0; // Reset contador
-      setSaveStatus('error');
-      setTimeout(() => setSaveStatus('idle'), 3000);
-      
-      // Em caso de erro, salva localmente como fallback
-      if (onSave) {
-        onSave(dataToSave);
-      }
+      console.error('Erro ao salvar via PUT (não crítico, já salvou via PATCH):', error);
+      // Já salvou via PATCH rundown, então retorna sucesso
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
       isSavingRef.current = false;
-      return false;
+      return true; // Retorna true porque já salvou via PATCH
     }
   }, [item.id, apiCall, onSave, toast]);
 
@@ -231,14 +198,17 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       clearTimeout(autoSaveTimeoutRef.current);
     }
 
+    // CRÍTICO: SEMPRE salva via onSave primeiro (que chama syncRundownUpdate -> PATCH rundown)
+    // Isso garante que o script seja salvo no banco de dados
+    if (onSave) {
+      onSave(dataToSave);
+    }
+
     // Verifica se o item tem ID temporário
     const isTemporaryId = isNaN(Number(item.id));
     
     if (isTemporaryId) {
-      // Item temporário: salva localmente via WebSocket
-      if (onSave) {
-        onSave(dataToSave);
-      }
+      // Item temporário: já salvou via onSave (PATCH rundown), não precisa tentar PUT
       if (!silent) {
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
@@ -247,6 +217,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
     }
 
     // Debounce: aguarda 3 segundos após a última alteração (aumentado para reduzir requisições)
+    // Tenta PUT como otimização, mas já salvou via PATCH rundown
     autoSaveTimeoutRef.current = setTimeout(async () => {
       await saveImmediately(dataToSave, silent);
     }, 3000); // 3 segundos de debounce (aumentado de 1.5s para reduzir requisições)
