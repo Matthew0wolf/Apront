@@ -55,6 +55,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
   const consecutiveErrorsRef = useRef(0); // Ref para contar erros consecutivos
   const consecutive401404Ref = useRef(0); // Ref para contar erros 401/404 consecutivos
   const last401404TimeRef = useRef(0); // Ref para rastrear quando ocorreu o último erro 401/404
+  const isLoadingRef = useRef(false); // Ref para indicar que está carregando dados (evita auto-save durante carregamento)
 
   // Função para salvar imediatamente (sem debounce) - usada quando o usuário clica em salvar ou fecha
   const saveImmediately = useCallback(async (dataToSave, silent = true) => {
@@ -69,6 +70,9 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
     // O PATCH do rundown já salva os scripts corretamente (ver backend/routes/rundown.py linha 403-406)
     if (onSave) {
       onSave(dataToSave);
+      // Atualiza referência imediatamente após salvar via PATCH
+      // Isso evita tentativas desnecessárias de PUT se o auto-save for disparado novamente
+      lastSavedDataRef.current = JSON.stringify(dataToSave);
     }
 
     // Verifica se o item tem ID temporário
@@ -98,6 +102,21 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
       return true;
+    }
+
+    // CRÍTICO: Se houver muitos erros 401/404 consecutivos, desabilita PUT completamente
+    // e usa apenas PATCH rundown (que já está funcionando)
+    const max401404Errors = 2; // Após 2 erros, desabilita PUT
+    const timeSinceLast401404 = now - last401404TimeRef.current;
+    const cooldownPeriod = 300000; // 5 minutos de cooldown
+    
+    if (consecutive401404Ref.current >= max401404Errors && timeSinceLast401404 < cooldownPeriod) {
+      // PUT desabilitado - já salvou via PATCH rundown, então retorna sucesso silenciosamente
+      lastSavedDataRef.current = JSON.stringify(dataToSave);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      isSavingRef.current = false;
+      return true; // Retorna true porque já salvou via PATCH
     }
 
     // Tenta salvar via PUT como otimização (item já existe no banco)
@@ -146,10 +165,8 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         if (response.status === 429) {
           consecutiveErrorsRef.current += 1;
           lastErrorTimeRef.current = Date.now();
-          const backoffSeconds = Math.min(30, Math.pow(2, consecutiveErrorsRef.current));
-          console.warn(`⚠️ 429 TOO MANY REQUESTS no PUT. Já salvou via PATCH rundown. Backoff de ${backoffSeconds}s.`);
-          
-          // Já salvou via onSave (PATCH rundown), então retorna sucesso
+          // Já salvou via onSave (PATCH rundown), então retorna sucesso silenciosamente
+          lastSavedDataRef.current = JSON.stringify(dataToSave);
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 2000);
           isSavingRef.current = false;
@@ -161,9 +178,14 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         if (response.status === 404 || response.status === 401) {
           consecutive401404Ref.current += 1;
           last401404TimeRef.current = Date.now();
-          console.log(`⚠️ ${response.status} no PUT. Já salvou via PATCH rundown. Erros consecutivos: ${consecutive401404Ref.current}`);
           
-          // Já salvou via onSave (PATCH rundown), então retorna sucesso
+          // Só loga se for o primeiro erro (para debug), depois suprime
+          if (consecutive401404Ref.current <= max401404Errors) {
+            // Não loga mais - já salvou via PATCH rundown, então não é um erro real
+          }
+          
+          // Já salvou via onSave (PATCH rundown), então retorna sucesso silenciosamente
+          lastSavedDataRef.current = JSON.stringify(dataToSave);
           window.dispatchEvent(new CustomEvent('scriptUpdated', {
             detail: { itemId: item.id }
           }));
@@ -174,7 +196,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         } else {
           // Outros erros (500, 403, etc)
           // Já salvou via PATCH rundown, então retorna sucesso mesmo com erro no PUT
-          console.warn(`⚠️ Erro ${response.status} no PUT. Já salvou via PATCH rundown.`);
+          lastSavedDataRef.current = JSON.stringify(dataToSave);
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 2000);
           isSavingRef.current = false;
@@ -182,8 +204,8 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         }
       }
     } catch (error) {
-      console.error('Erro ao salvar via PUT (não crítico, já salvou via PATCH):', error);
-      // Já salvou via PATCH rundown, então retorna sucesso
+      // Já salvou via PATCH rundown, então retorna sucesso silenciosamente
+      lastSavedDataRef.current = JSON.stringify(dataToSave);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
       isSavingRef.current = false;
@@ -193,32 +215,50 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
 
   // Função para salvar automaticamente (debounced) - usada durante a digitação
   const autoSave = useCallback(async (dataToSave, silent = true) => {
+    // CRÍTICO: Verifica se os dados realmente mudaram antes de salvar
+    const currentDataStr = JSON.stringify(dataToSave);
+    if (currentDataStr === lastSavedDataRef.current) {
+      // Dados não mudaram, não precisa salvar
+      return;
+    }
+
     // Cancela salvamento anterior se ainda estiver pendente
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
 
-    // CRÍTICO: SEMPRE salva via onSave primeiro (que chama syncRundownUpdate -> PATCH rundown)
-    // Isso garante que o script seja salvo no banco de dados
-    if (onSave) {
-      onSave(dataToSave);
-    }
-
-    // Verifica se o item tem ID temporário
-    const isTemporaryId = isNaN(Number(item.id));
-    
-    if (isTemporaryId) {
-      // Item temporário: já salvou via onSave (PATCH rundown), não precisa tentar PUT
-      if (!silent) {
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
-      }
-      return;
-    }
-
     // Debounce: aguarda 3 segundos após a última alteração (aumentado para reduzir requisições)
-    // Tenta PUT como otimização, mas já salvou via PATCH rundown
     autoSaveTimeoutRef.current = setTimeout(async () => {
+      // Verifica novamente se os dados mudaram (pode ter mudado durante o debounce)
+      const finalDataStr = JSON.stringify(dataToSave);
+      if (finalDataStr === lastSavedDataRef.current) {
+        // Dados não mudaram mais, não precisa salvar
+        return;
+      }
+
+      // CRÍTICO: SEMPRE salva via onSave primeiro (que chama syncRundownUpdate -> PATCH rundown)
+      // Isso garante que o script seja salvo no banco de dados
+      if (onSave) {
+        onSave(dataToSave);
+        // Atualiza referência imediatamente após salvar via PATCH
+        // Isso evita tentativas desnecessárias de PUT
+        lastSavedDataRef.current = finalDataStr;
+      }
+
+      // Verifica se o item tem ID temporário
+      const isTemporaryId = isNaN(Number(item.id));
+      
+      if (isTemporaryId) {
+        // Item temporário: já salvou via onSave (PATCH rundown), não precisa tentar PUT
+        if (!silent) {
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2000);
+        }
+        return;
+      }
+
+      // Tenta PUT como otimização, mas já salvou via PATCH rundown
+      // O saveImmediately também atualiza lastSavedDataRef se o PUT funcionar
       await saveImmediately(dataToSave, silent);
     }, 3000); // 3 segundos de debounce (aumentado de 1.5s para reduzir requisições)
   }, [item.id, onSave, saveImmediately]);
@@ -226,6 +266,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
   useEffect(() => {
     // Carregar script do item
     const loadScript = async () => {
+      isLoadingRef.current = true; // Marca que está carregando
       try {
         // PRIMEIRO: Tenta carregar do estado local do item (que vem do rundown)
         // Isso garante que dados salvos localmente sejam exibidos mesmo se não estiverem no banco ainda
@@ -246,6 +287,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
             console.log('📝 Carregando script do estado local do item:', item.id);
             setScriptData(localData);
             lastSavedDataRef.current = localDataStr;
+            isLoadingRef.current = false; // Marca que terminou de carregar
             return; // Usa dados locais, não precisa carregar do banco
           }
         }
@@ -256,6 +298,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
         if (isTemporaryId) {
           // Item ainda não foi salvo no backend: não tenta carregar da API
           console.log('📝 Item temporário, usando apenas dados locais:', item.id);
+          isLoadingRef.current = false; // Marca que terminou de carregar
           return;
         }
         
@@ -306,6 +349,8 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
             lastSavedDataRef.current = JSON.stringify(localData);
           }
         }
+      } finally {
+        isLoadingRef.current = false; // Sempre marca que terminou de carregar
       }
     };
 
@@ -348,7 +393,8 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
 
   // Auto-save quando scriptData muda
   useEffect(() => {
-    if (isDirty && item?.id && !isSavingRef.current) {
+    // CRÍTICO: Não salva se estiver carregando dados (evita salvar ao abrir o diálogo)
+    if (isDirty && item?.id && !isSavingRef.current && !isLoadingRef.current) {
       const currentData = JSON.stringify(scriptData);
       // Só salva se os dados mudaram desde a última vez e não estiver salvando
       if (currentData !== lastSavedDataRef.current && saveStatus !== 'saving') {

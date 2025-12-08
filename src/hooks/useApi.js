@@ -53,7 +53,8 @@ export const useApi = () => {
         });
       } else if (timeSinceLastRefresh < refreshCooldown) {
         // Se ainda está em cooldown, não tenta fazer refresh
-        console.log(`⏸️ Refresh em cooldown. Aguardando ${Math.ceil((refreshCooldown - timeSinceLastRefresh) / 1000)}s`);
+        // Suprime log para não poluir o console (especialmente para PUT /api/items/{id}/script)
+        // console.log(`⏸️ Refresh em cooldown. Aguardando ${Math.ceil((refreshCooldown - timeSinceLastRefresh) / 1000)}s`);
         return response; // Retorna o 401 sem tentar refresh
       }
       
@@ -91,13 +92,15 @@ export const useApi = () => {
               // Silencioso: token renovado automaticamente com sucesso
               // Não loga para não poluir o console
             } else {
-              // Se ainda falhar, só loga se não for 404 (404 pode ser esperado em alguns casos)
-              if (response.status === 401) {
-                try {
-                  const errorText = await errorResponse.text().catch(() => '');
-                  console.warn('⚠️ 401 persistiu após refresh:', finalUrl, errorText.substring(0, 100));
-                } catch {}
-              }
+              // Se ainda falhar, suprime logs para PUT /api/items/{id}/script (já salvou via PATCH rundown)
+            // Só loga se NÃO for uma rota de script
+            const isScriptRoute = finalUrl.includes('/api/items/') && finalUrl.includes('/script');
+            if (response.status === 401 && !isScriptRoute) {
+              try {
+                const errorText = await errorResponse.text().catch(() => '');
+                console.warn('⚠️ 401 persistiu após refresh:', finalUrl, errorText.substring(0, 100));
+              } catch {}
+            }
             }
           } else {
             // Já tentou fazer retry, não tenta novamente
