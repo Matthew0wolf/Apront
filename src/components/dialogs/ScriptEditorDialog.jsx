@@ -50,9 +50,18 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
   const autoSaveTimeoutRef = useRef(null);
   const lastSavedDataRef = useRef(null);
   const currentScriptDataRef = useRef(scriptData); // Ref para acessar dados atuais no cleanup
+  const isSavingRef = useRef(false); // Ref para evitar múltiplas requisições simultâneas
+  const lastErrorTimeRef = useRef(0); // Ref para rastrear quando ocorreu o último erro 429
+  const consecutiveErrorsRef = useRef(0); // Ref para contar erros consecutivos
 
   // Função para salvar imediatamente (sem debounce) - usada quando o usuário clica em salvar ou fecha
   const saveImmediately = useCallback(async (dataToSave, silent = true) => {
+    // CRÍTICO: Evita múltiplas requisições simultâneas
+    if (isSavingRef.current) {
+      console.log('⏸️ Salvamento já em andamento, ignorando requisição duplicada');
+      return false;
+    }
+
     // Verifica se o item tem ID temporário
     const isTemporaryId = isNaN(Number(item.id));
     
@@ -68,7 +77,22 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       return true;
     }
 
+    // CRÍTICO: Verifica se houve erro 429 recentemente e aplica backoff exponencial
+    const now = Date.now();
+    const timeSinceLastError = now - lastErrorTimeRef.current;
+    const backoffDelay = Math.min(30000, Math.pow(2, consecutiveErrorsRef.current) * 1000); // Máximo 30s
+    
+    if (timeSinceLastError < backoffDelay && consecutiveErrorsRef.current > 0) {
+      console.log(`⏳ Aguardando backoff após erro 429: ${Math.ceil((backoffDelay - timeSinceLastError) / 1000)}s restantes`);
+      // Salva localmente enquanto espera
+      if (onSave) {
+        onSave(dataToSave);
+      }
+      return false; // Não tenta salvar no banco ainda
+    }
+
     try {
+      isSavingRef.current = true;
       setSaveStatus('saving');
       
       const response = await apiCall(`/api/items/${item.id}/script`, {
@@ -85,6 +109,8 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       if (response.ok) {
         const result = await response.json().catch(() => ({}));
         lastSavedDataRef.current = JSON.stringify(dataToSave);
+        consecutiveErrorsRef.current = 0; // Reset contador de erros
+        lastErrorTimeRef.current = 0; // Reset tempo do último erro
         
         // Notifica outros clientes via WebSocket
         window.dispatchEvent(new CustomEvent('scriptUpdated', {
@@ -104,10 +130,38 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
             description: "O script foi atualizado com sucesso!"
           });
         }
+        isSavingRef.current = false;
         return true;
       } else {
+        // Se 429 (TOO MANY REQUESTS), aplica backoff exponencial
+        if (response.status === 429) {
+          consecutiveErrorsRef.current += 1;
+          lastErrorTimeRef.current = Date.now();
+          const backoffSeconds = Math.min(30, Math.pow(2, consecutiveErrorsRef.current));
+          console.warn(`⚠️ 429 TOO MANY REQUESTS. Aplicando backoff de ${backoffSeconds}s. Erros consecutivos: ${consecutiveErrorsRef.current}`);
+          
+          // Salva localmente enquanto espera
+          if (onSave) {
+            onSave(dataToSave);
+          }
+          
+          setSaveStatus('error');
+          setTimeout(() => setSaveStatus('idle'), 3000);
+          isSavingRef.current = false;
+          
+          if (!silent) {
+            toast({
+              variant: "destructive",
+              title: "Muitas requisições",
+              description: `Aguardando ${backoffSeconds}s antes de tentar novamente...`
+            });
+          }
+          return false;
+        }
+        
         // Se 404, o item pode não existir no banco ainda - salva localmente
         if (response.status === 404) {
+          consecutiveErrorsRef.current = 0; // Reset contador (404 não é um erro de rate limit)
           // Não loga como erro - é esperado quando o item ainda não foi salvo no banco
           if (onSave) {
             onSave(dataToSave);
@@ -117,8 +171,10 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           }));
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 2000);
+          isSavingRef.current = false;
           return true;
         } else if (response.status === 401) {
+          consecutiveErrorsRef.current = 0; // Reset contador (401 não é um erro de rate limit)
           // Se ainda é 401 após o refresh ter sido tentado pelo useApi,
           // significa que o refresh falhou ou o token ainda é inválido
           // Salva localmente como fallback
@@ -130,9 +186,11 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           }));
           setSaveStatus('saved');
           setTimeout(() => setSaveStatus('idle'), 2000);
+          isSavingRef.current = false;
           return true;
         } else {
           // Outros erros (500, 403, etc)
+          consecutiveErrorsRef.current = 0; // Reset contador
           setSaveStatus('error');
           setTimeout(() => setSaveStatus('idle'), 3000);
           if (!silent) {
@@ -147,11 +205,13 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
           if (onSave) {
             onSave(dataToSave);
           }
+          isSavingRef.current = false;
           return false;
         }
       }
     } catch (error) {
       console.error('Erro ao salvar:', error);
+      consecutiveErrorsRef.current = 0; // Reset contador
       setSaveStatus('error');
       setTimeout(() => setSaveStatus('idle'), 3000);
       
@@ -159,6 +219,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       if (onSave) {
         onSave(dataToSave);
       }
+      isSavingRef.current = false;
       return false;
     }
   }, [item.id, apiCall, onSave, toast]);
@@ -185,10 +246,10 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
       return;
     }
 
-    // Debounce: aguarda 1.5 segundos após a última alteração
+    // Debounce: aguarda 3 segundos após a última alteração (aumentado para reduzir requisições)
     autoSaveTimeoutRef.current = setTimeout(async () => {
       await saveImmediately(dataToSave, silent);
-    }, 1500); // 1.5 segundos de debounce
+    }, 3000); // 3 segundos de debounce (aumentado de 1.5s para reduzir requisições)
   }, [item.id, onSave, saveImmediately]);
 
   useEffect(() => {
@@ -316,7 +377,7 @@ const ScriptEditorDialog = ({ item, onSave, onClose }) => {
 
   // Auto-save quando scriptData muda
   useEffect(() => {
-    if (isDirty && item?.id) {
+    if (isDirty && item?.id && !isSavingRef.current) {
       const currentData = JSON.stringify(scriptData);
       // Só salva se os dados mudaram desde a última vez e não estiver salvando
       if (currentData !== lastSavedDataRef.current && saveStatus !== 'saving') {

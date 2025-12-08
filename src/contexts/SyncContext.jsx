@@ -11,6 +11,13 @@ export const SyncProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [activeRundownId, setActiveRundownId] = useState(null);
   const { token, user } = useContext(AuthContext);
+  
+  // Refs para throttling de syncRundownUpdate
+  const lastSyncTimeRef = useRef(0);
+  const pendingSyncRef = useRef(null);
+  const isSyncingRef = useRef(false);
+  const lastErrorTimeRef = useRef(0);
+  const consecutiveErrorsRef = useRef(0);
 
   useEffect(() => {
     // Conecta ao WebSocket quando o componente monta
@@ -136,9 +143,57 @@ export const SyncProvider = ({ children }) => {
   const syncRundownUpdate = async (rundownId, changes) => {
     console.log('🔄 Sincronizando mudanças de rundown via WebSocket:', { rundownId, changes, hasItems: !!changes.items, changesKeys: Object.keys(changes), hasToken: !!token });
     
+    // CRÍTICO: Throttling - evita múltiplas requisições simultâneas
+    if (isSyncingRef.current) {
+      console.log('⏸️ Sincronização já em andamento, armazenando mudanças pendentes');
+      pendingSyncRef.current = { rundownId, changes };
+      return;
+    }
+
+    // CRÍTICO: Throttling - mínimo de 2 segundos entre sincronizações
+    const now = Date.now();
+    const timeSinceLastSync = now - lastSyncTimeRef.current;
+    const minThrottleDelay = 2000; // 2 segundos
+    
+    if (timeSinceLastSync < minThrottleDelay && lastSyncTimeRef.current > 0) {
+      console.log(`⏸️ Throttling: aguardando ${Math.ceil((minThrottleDelay - timeSinceLastSync) / 1000)}s antes de sincronizar`);
+      pendingSyncRef.current = { rundownId, changes };
+      
+      // Agenda a sincronização pendente
+      setTimeout(() => {
+        if (pendingSyncRef.current) {
+          const pending = pendingSyncRef.current;
+          pendingSyncRef.current = null;
+          syncRundownUpdate(pending.rundownId, pending.changes);
+        }
+      }, minThrottleDelay - timeSinceLastSync);
+      return;
+    }
+
+    // CRÍTICO: Verifica backoff após erro 429
+    const timeSinceLastError = now - lastErrorTimeRef.current;
+    const backoffDelay = Math.min(30000, Math.pow(2, consecutiveErrorsRef.current) * 1000); // Máximo 30s
+    
+    if (timeSinceLastError < backoffDelay && consecutiveErrorsRef.current > 0) {
+      console.log(`⏳ Backoff após erro 429: aguardando ${Math.ceil((backoffDelay - timeSinceLastError) / 1000)}s`);
+      pendingSyncRef.current = { rundownId, changes };
+      
+      setTimeout(() => {
+        if (pendingSyncRef.current) {
+          const pending = pendingSyncRef.current;
+          pendingSyncRef.current = null;
+          syncRundownUpdate(pending.rundownId, pending.changes);
+        }
+      }, backoffDelay - timeSinceLastError);
+      return;
+    }
+    
     // Se houver mudanças em 'items', tentar salvar no banco de dados via API (se houver token)
     if (changes && changes.items && Array.isArray(changes.items) && token) {
       console.log('🔍 [DEBUG] changes.items detectado!', { itemsLength: changes.items.length, rundownId });
+      isSyncingRef.current = true;
+      lastSyncTimeRef.current = now;
+      
       try {
         console.log('💾 [SAVE] Salvando pastas e eventos no banco de dados...', { 
           rundownId, 
@@ -161,6 +216,8 @@ export const SyncProvider = ({ children }) => {
         if (response.ok) {
           const result = await response.json().catch(() => ({}));
           console.log('✅ [SAVE] Pastas e eventos salvos no banco de dados:', result);
+          consecutiveErrorsRef.current = 0; // Reset contador de erros
+          lastErrorTimeRef.current = 0; // Reset tempo do último erro
           
           // CRÍTICO: Se o backend retornou a estrutura com IDs reais, atualizar o estado local
           // Isso garante que itens com IDs temporários recebam os IDs reais do banco
@@ -196,14 +253,25 @@ export const SyncProvider = ({ children }) => {
               console.log('📡 [SAVE] Dados atualizados enviados via WebSocket para outros clientes');
             }
           }
+        } else if (response.status === 429) {
+          // CRÍTICO: 429 TOO MANY REQUESTS - aplica backoff exponencial
+          consecutiveErrorsRef.current += 1;
+          lastErrorTimeRef.current = Date.now();
+          const backoffSeconds = Math.min(30, Math.pow(2, consecutiveErrorsRef.current));
+          console.warn(`⚠️ [SAVE] 429 TOO MANY REQUESTS. Aplicando backoff de ${backoffSeconds}s. Erros consecutivos: ${consecutiveErrorsRef.current}`);
+          // Continua para sincronizar via WebSocket mesmo com erro 429
         } else {
+          consecutiveErrorsRef.current = 0; // Reset contador (outros erros não são rate limit)
           const errorData = await response.json().catch(() => ({}));
           console.warn('⚠️ [SAVE] Erro ao salvar no banco (continuando com sincronização WebSocket):', response.status, errorData);
           // CRÍTICO: Mesmo com erro ao salvar no banco, continua para sincronizar via WebSocket
         }
       } catch (error) {
+        consecutiveErrorsRef.current = 0; // Reset contador
         console.warn('⚠️ [SAVE] Erro ao salvar mudanças no banco (continuando com sincronização WebSocket):', error);
         // CRÍTICO: Mesmo com erro, continua para sincronizar via WebSocket
+      } finally {
+        isSyncingRef.current = false;
       }
     } else if (changes && changes.items && Array.isArray(changes.items) && !token) {
       console.warn('⚠️ [SAVE] Token não disponível - pulando salvamento no banco, mas sincronizando via WebSocket');
