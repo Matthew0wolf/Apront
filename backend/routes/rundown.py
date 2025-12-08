@@ -59,6 +59,16 @@ def get_rundowns():
             # Ordenar items por ordem
             sorted_items = sorted(f.items, key=lambda i: i.ordem or 0)
             for i in sorted_items:
+                # Parse talking_points se for string JSON
+                talking_points = i.talking_points
+                if talking_points and isinstance(talking_points, str):
+                    try:
+                        talking_points = json.loads(talking_points)
+                    except (json.JSONDecodeError, TypeError):
+                        talking_points = []
+                elif not talking_points:
+                    talking_points = []
+                
                 items.append({
                     'id': str(i.id),
                     'title': i.title,
@@ -70,7 +80,12 @@ def get_rundowns():
                     'iconData': i.icon_data,
                     'color': i.color,
                     'urgency': i.urgency,
-                    'reminder': i.reminder or ''
+                    'reminder': i.reminder or '',
+                    # CRÍTICO: Incluir campos de script na resposta
+                    'script': i.script or '',
+                    'talking_points': talking_points,
+                    'pronunciation_guide': i.pronunciation_guide or '',
+                    'presenter_notes': i.presenter_notes or ''
                 })
             folders.append({
                 'id': str(f.id),
@@ -413,6 +428,16 @@ def update_rundown(rundown_id):
             folder_items = []
             saved_folder_items = Item.query.filter_by(folder_id=folder.id).order_by(Item.ordem).all()
             for item in saved_folder_items:
+                # Parse talking_points se for string JSON
+                talking_points = item.talking_points
+                if talking_points and isinstance(talking_points, str):
+                    try:
+                        talking_points = json.loads(talking_points)
+                    except (json.JSONDecodeError, TypeError):
+                        talking_points = []
+                elif not talking_points:
+                    talking_points = []
+                
                 folder_items.append({
                     'id': str(item.id),
                     'title': item.title,
@@ -424,7 +449,12 @@ def update_rundown(rundown_id):
                     'iconData': item.icon_data,
                     'color': item.color,
                     'urgency': item.urgency,
-                    'reminder': item.reminder or ''
+                    'reminder': item.reminder or '',
+                    # CRÍTICO: Incluir campos de script na resposta
+                    'script': item.script or '',
+                    'talking_points': talking_points,
+                    'pronunciation_guide': item.pronunciation_guide or '',
+                    'presenter_notes': item.presenter_notes or ''
                 })
             saved_items.append({
                 'id': str(folder.id),

@@ -7,7 +7,8 @@ let refreshPromise = null;
 
 export const useApi = () => {
   const { token, refreshToken } = useContext(AuthContext);
-  const retryCountRef = useRef(0);
+  // Usa um Map para rastrear retries por URL, evitando problemas com múltiplas chamadas simultâneas
+  const retryCountMap = useRef(new Map());
 
   const apiCall = useCallback(async (url, options = {}) => {
     // Se a URL for relativa (começar com /api), adiciona o API_BASE_URL
@@ -19,10 +20,13 @@ export const useApi = () => {
       finalUrl = url.replace('http://localhost:5001', API_BASE_URL);
     }
 
+    // Sempre lê o token mais recente do localStorage para garantir que está atualizado
+    const currentToken = localStorage.getItem('token') || token;
+
     const defaultOptions = {
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` }),
+        ...(currentToken && { 'Authorization': `Bearer ${currentToken}` }),
         ...options.headers,
       },
       ...options,
@@ -45,20 +49,31 @@ export const useApi = () => {
       const refreshed = await refreshPromise;
       
       if (refreshed) {
+        // Aguarda um pouco para garantir que o token foi atualizado no contexto
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Lê o novo token do localStorage (sempre a fonte mais confiável após refresh)
         const newToken = localStorage.getItem('token');
         if (newToken) {
-          const newOptions = {
-            ...defaultOptions,
-            headers: {
-              ...defaultOptions.headers,
-              'Authorization': `Bearer ${newToken}`,
-            },
-          };
-          // Tenta novamente com o novo token (máximo 1 retry)
-          if (retryCountRef.current < 1) {
-            retryCountRef.current++;
+          // Verifica se já tentou fazer retry para esta URL específica
+          const retryCount = retryCountMap.current.get(finalUrl) || 0;
+          
+          if (retryCount < 1) {
+            retryCountMap.current.set(finalUrl, retryCount + 1);
+            
+            const newOptions = {
+              ...defaultOptions,
+              headers: {
+                ...defaultOptions.headers,
+                'Authorization': `Bearer ${newToken}`,
+              },
+            };
+            
+            // Tenta novamente com o novo token
             response = await fetch(finalUrl, newOptions);
-            retryCountRef.current = 0;
+            
+            // Limpa o contador de retry após a tentativa
+            retryCountMap.current.delete(finalUrl);
             
             // Se a segunda tentativa foi bem-sucedida, não logar o erro 401 inicial
             if (response.ok) {
@@ -73,11 +88,14 @@ export const useApi = () => {
                 } catch {}
               }
             }
+          } else {
+            // Já tentou fazer retry, não tenta novamente
+            retryCountMap.current.delete(finalUrl);
           }
         }
       } else {
-        // Se o refresh falhou, loga apenas se for crítico
-        // Não loga para não poluir o console com erros esperados
+        // Se o refresh falhou, não tenta novamente
+        // O erro 401 será retornado normalmente
       }
     }
 

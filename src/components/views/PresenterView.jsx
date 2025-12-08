@@ -546,13 +546,65 @@ const PresenterView = () => {
     }
   }, [currentItem?.id, loadScript]);
 
+  // CRÍTICO: Monitora mudanças no rundown para atualizar script em tempo real
+  // Isso garante que quando o operador salva um script, o apresentador vê imediatamente
+  useEffect(() => {
+    if (!rundown?.items || !currentItem?.id) return;
+    
+    // Busca o item atual no rundown
+    let updatedItem = null;
+    for (const folder of rundown.items) {
+      if (folder.children) {
+        updatedItem = folder.children.find(item => String(item.id) === String(currentItem.id));
+        if (updatedItem) break;
+      }
+    }
+    
+    // Se encontrou o item e ele tem script diferente do atual, atualiza
+    if (updatedItem && (
+      updatedItem.script !== undefined || 
+      updatedItem.talking_points || 
+      updatedItem.pronunciation_guide || 
+      updatedItem.presenter_notes
+    )) {
+      const currentScriptText = currentScript?.script || '';
+      const newScriptText = updatedItem.script || '';
+      const currentTalkingPoints = JSON.stringify(currentScript?.talking_points || []);
+      const newTalkingPoints = JSON.stringify(
+        Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
+        (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : [])
+      );
+      
+      // Só atualiza se realmente mudou (evita loops infinitos)
+      if (currentScriptText !== newScriptText || currentTalkingPoints !== newTalkingPoints ||
+          (currentScript?.pronunciation_guide || '') !== (updatedItem.pronunciation_guide || '') ||
+          (currentScript?.presenter_notes || '') !== (updatedItem.presenter_notes || '')) {
+        const localScript = {
+          id: updatedItem.id,
+          script: updatedItem.script || '',
+          talking_points: Array.isArray(updatedItem.talking_points) ? updatedItem.talking_points : 
+                         (typeof updatedItem.talking_points === 'string' ? JSON.parse(updatedItem.talking_points || '[]') : []),
+          pronunciation_guide: updatedItem.pronunciation_guide || '',
+          presenter_notes: updatedItem.presenter_notes || ''
+        };
+        setCurrentScript(localScript);
+        console.log('✅ PresenterView: Script atualizado automaticamente do rundown (tempo real)');
+      }
+    }
+  }, [rundown?.items, currentItem?.id, currentScript]);
+
   // Listener para detectar quando o script foi atualizado via sincronização
   useEffect(() => {
     const handleRundownSync = (event) => {
       const { rundownId, changes } = event.detail;
       
-      // Verifica se há mudanças nos items e se o item atual foi atualizado
-      if (changes?.items && currentItem?.id && rundown?.id && String(rundown.id) === String(rundownId)) {
+      // Verifica se é o rundown atual
+      if (!currentItem?.id || !rundown?.id || String(rundown.id) !== String(rundownId)) {
+        return;
+      }
+      
+      // Verifica se há mudanças nos items
+      if (changes?.items && Array.isArray(changes.items)) {
         console.log('📡 PresenterView: Detectada atualização de items, verificando script do item atual...', {
           currentItemId: currentItem.id,
           changes: changes.items
@@ -568,7 +620,7 @@ const PresenterView = () => {
         }
         
         if (updatedItem) {
-          console.log('✅ PresenterView: Item atual foi atualizado, atualizando script localmente e tentando recarregar do banco...');
+          console.log('✅ PresenterView: Item atual foi atualizado, atualizando script localmente...');
           
           // Atualiza o script localmente imediatamente (para sincronização instantânea)
           if (updatedItem.script !== undefined || updatedItem.talking_points || updatedItem.pronunciation_guide || updatedItem.presenter_notes) {
@@ -581,11 +633,53 @@ const PresenterView = () => {
               presenter_notes: updatedItem.presenter_notes || ''
             };
             setCurrentScript(localScript);
-            console.log('✅ PresenterView: Script atualizado localmente (instantâneo)');
+            console.log('✅ PresenterView: Script atualizado localmente (instantâneo via WebSocket)');
           }
           
           // Também tenta recarregar do banco (se o item existir lá)
           loadScript(currentItem.id);
+        }
+      }
+      
+      // CRÍTICO: Também verifica se o item atual foi atualizado no rundown (atualizado pelo RundownContext)
+      // Isso garante que mesmo quando não há changes.items, mas o rundown foi atualizado, o script seja atualizado
+      if (rundown?.items && currentItem?.id) {
+        // Busca o item atual no rundown atualizado
+        let updatedItemInRundown = null;
+        for (const folder of rundown.items) {
+          if (folder.children) {
+            updatedItemInRundown = folder.children.find(item => String(item.id) === String(currentItem.id));
+            if (updatedItemInRundown) break;
+          }
+        }
+        
+        // Se encontrou o item e ele tem script, atualiza
+        if (updatedItemInRundown && (
+          updatedItemInRundown.script !== undefined || 
+          updatedItemInRundown.talking_points || 
+          updatedItemInRundown.pronunciation_guide || 
+          updatedItemInRundown.presenter_notes
+        )) {
+          // Compara com o script atual para evitar atualizações desnecessárias
+          const currentScriptText = currentScript?.script || '';
+          const newScriptText = updatedItemInRundown.script || '';
+          
+          if (currentScriptText !== newScriptText || 
+              JSON.stringify(currentScript?.talking_points || []) !== JSON.stringify(
+                Array.isArray(updatedItemInRundown.talking_points) ? updatedItemInRundown.talking_points : 
+                (typeof updatedItemInRundown.talking_points === 'string' ? JSON.parse(updatedItemInRundown.talking_points || '[]') : [])
+              )) {
+            const localScript = {
+              id: updatedItemInRundown.id,
+              script: updatedItemInRundown.script || '',
+              talking_points: Array.isArray(updatedItemInRundown.talking_points) ? updatedItemInRundown.talking_points : 
+                             (typeof updatedItemInRundown.talking_points === 'string' ? JSON.parse(updatedItemInRundown.talking_points || '[]') : []),
+              pronunciation_guide: updatedItemInRundown.pronunciation_guide || '',
+              presenter_notes: updatedItemInRundown.presenter_notes || ''
+            };
+            setCurrentScript(localScript);
+            console.log('✅ PresenterView: Script atualizado do rundown (tempo real)');
+          }
         }
       }
     };
